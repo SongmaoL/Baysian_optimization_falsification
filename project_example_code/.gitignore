@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Project specific outputs
+falsification_output/
+falsification_*/
+test_run/
+analysis_output/
+scenarios/
+logs/
+vids/
+results/
+*.log
+
+# CARLA
+csci513-miniproject1/logs/
+csci513-miniproject1/vids/
+csci513-miniproject1/__pycache__/
+csci513-miniproject1/build/
+csci513-miniproject1/dist/
+csci513-miniproject1/*.egg-info/
+
+# Data files (exclude large files)
+*.mp4
+*.avi
+*.csv
+*.h5
+*.pkl
+*.pickle
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Keep empty directories
+!.gitkeep
+
