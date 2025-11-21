@@ -100,15 +100,16 @@ class CARLASimulationRunner:
                 return None
             
             # Find the generated log file
-            # Simulation creates logs with scenario name
+            # Simulation creates logs with pattern: episode-{scenario_name}.csv
             scenario_name = scenario_path.stem
-            log_file = self.log_dir / f"{scenario_name}.csv"
+            log_file = self.log_dir / f"episode-{scenario_name}.csv"
             
             if not log_file.exists():
-                # Try to find most recent log file
+                # Try to find most recent log file as fallback
                 log_files = sorted(self.log_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if log_files:
                     log_file = log_files[0]
+                    print(f"  Warning: Expected log file not found, using most recent: {log_file.name}")
                 else:
                     print("No log file found after simulation")
                     return None
