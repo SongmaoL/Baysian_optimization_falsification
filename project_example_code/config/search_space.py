@@ -117,14 +117,16 @@ PLAUSIBILITY_CONSTRAINTS = {
     # Maximum longitudinal acceleration (m/s²)
     # Passenger cars: typically < 10 m/s² (1g)
     # Emergency braking: < 20 m/s² (2g)
-    "max_longitudinal_accel": 20.0,  # 2g
-    "comfortable_max_accel": 10.0,   # 1g
+    # Extreme but still possible: < 25 m/s² (2.5g)
+    "max_longitudinal_accel": 25.0,  # 2.5g (relaxed from 20.0 for better gradient)
+    "comfortable_max_accel": 8.0,    # 0.8g (tighter comfortable range)
     
     # Maximum jerk (m/s³)
     # Comfortable: < 2 m/s³
     # Acceptable: < 5 m/s³
-    "max_jerk": 10.0,
-    "comfortable_max_jerk": 2.0,
+    # Extreme but possible: < 15 m/s³
+    "max_jerk": 15.0,                 # Relaxed from 10.0 for better gradient
+    "comfortable_max_jerk": 2.0,      # Keep same
     
     # Maximum lateral acceleration (m/s²)
     "max_lateral_accel": 10.0,  # 1g

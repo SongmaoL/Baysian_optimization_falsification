@@ -239,7 +239,13 @@ def calculate_plausibility_score(trace_df: pd.DataFrame,
     comfortable_accel = PLAUSIBILITY_CONSTRAINTS['comfortable_max_accel']
     
     if max_accel > max_acceptable_accel:
-        accel_score = 0.0  # Physically implausible
+        # Use exponential decay instead of hard cutoff for better gradient
+        # Excess beyond acceptable threshold
+        excess = max_accel - max_acceptable_accel
+        # Exponential decay: score decreases smoothly (decay rate = 5.0 m/s²)
+        # This gives non-zero scores even for slightly implausible scenarios
+        accel_score = 50.0 * np.exp(-excess / 5.0)  # Starts at 50, decays smoothly
+        accel_score = max(1.0, accel_score)  # Minimum floor of 1.0
     elif max_accel > comfortable_accel:
         # Linearly decrease from 100 to 50 between comfortable and max
         accel_score = 100 - 50 * (max_accel - comfortable_accel) / (max_acceptable_accel - comfortable_accel)
@@ -251,7 +257,11 @@ def calculate_plausibility_score(trace_df: pd.DataFrame,
     comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']
     
     if max_jerk > max_acceptable_jerk:
-        jerk_score = 0.0  # Physically implausible
+        # Use exponential decay instead of hard cutoff
+        excess = max_jerk - max_acceptable_jerk
+        # Exponential decay (decay rate = 3.0 m/s³)
+        jerk_score = 50.0 * np.exp(-excess / 3.0)  # Starts at 50, decays smoothly
+        jerk_score = max(1.0, jerk_score)  # Minimum floor of 1.0
     elif max_jerk > comfortable_jerk:
         jerk_score = 100 - 50 * (max_jerk - comfortable_jerk) / (max_acceptable_jerk - comfortable_jerk)
     else:
@@ -292,7 +302,13 @@ def calculate_comfort_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']
     max_jerk_threshold = 10.0  # Very uncomfortable
     
-    jerk_score = np.clip((max_jerk_threshold - max_jerk) / (max_jerk_threshold - comfortable_jerk) * 100, 0, 100)
+    if max_jerk > max_jerk_threshold:
+        # Use exponential decay for very uncomfortable scenarios
+        excess = max_jerk - max_jerk_threshold
+        jerk_score = 20.0 * np.exp(-excess / 3.0)  # Smooth decay, minimum floor
+        jerk_score = max(1.0, jerk_score)
+    else:
+        jerk_score = np.clip((max_jerk_threshold - max_jerk) / (max_jerk_threshold - comfortable_jerk) * 100, 0, 100)
     
     # Score total jerk (normalized by trace length)
     trace_length = len(trace_df)
@@ -300,13 +316,25 @@ def calculate_comfort_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     comfortable_avg_jerk = 0.5
     max_avg_jerk = 5.0
     
-    total_jerk_score = np.clip((max_avg_jerk - avg_jerk_per_step) / (max_avg_jerk - comfortable_avg_jerk) * 100, 0, 100)
+    if avg_jerk_per_step > max_avg_jerk:
+        # Exponential decay for very high average jerk
+        excess = avg_jerk_per_step - max_avg_jerk
+        total_jerk_score = 20.0 * np.exp(-excess / 1.0)
+        total_jerk_score = max(1.0, total_jerk_score)
+    else:
+        total_jerk_score = np.clip((max_avg_jerk - avg_jerk_per_step) / (max_avg_jerk - comfortable_avg_jerk) * 100, 0, 100)
     
     # Score hard events (normalized by trace length)
     hard_event_rate = hard_events / max(trace_length, 1) * 100  # Events per 100 timesteps
     max_acceptable_rate = 10.0  # 10 hard events per 100 timesteps
     
-    hard_event_score = np.clip(100 - (hard_event_rate / max_acceptable_rate) * 100, 0, 100)
+    if hard_event_rate > max_acceptable_rate:
+        # Exponential decay for very high event rates
+        excess = hard_event_rate - max_acceptable_rate
+        hard_event_score = 20.0 * np.exp(-excess / 5.0)
+        hard_event_score = max(1.0, hard_event_score)
+    else:
+        hard_event_score = np.clip(100 - (hard_event_rate / max_acceptable_rate) * 100, 0, 100)
     
     # Combined comfort score (weighted average)
     comfort_score = 0.4 * jerk_score + 0.3 * total_jerk_score + 0.3 * hard_event_score
