@@ -1,77 +1,59 @@
 # Next Steps
 
-## 1. Debug Metrics (1-2 days) - DO FIRST
+## ✓ FIXED: Root Cause Identified!
 
-### Check what's wrong:
+**Problem:** `scenario_generator.py` used instant step functions for brake commands
+- Brake went 0→0.8 instantly → unrealistic >2g acceleration
+- **71% plausibility=0 was CORRECT** - those scenarios violated physics!
+
+**Fix:** Added exponential smoothing (alpha=0.3) to brake/throttle transitions
+- Now takes ~0.3-0.5s to transition (realistic)
+- Should generate physically plausible scenarios
+
+---
+
+## 1. (Optional) Diagnose Old Scenarios
+
+If you want to confirm the issue with existing 107 scenarios:
+
 ```bash
-# Examine log file structure
-head logs/episode-scenario_0043.csv
-
-# Check if acceleration/jerk columns exist
-# If missing, need to calculate from velocity
+cd project_example_code
+python diagnose_physics.py
 ```
 
-### Fix plausibility calculation:
-```python
-# metrics/objective_functions.py
+This will show that old scenarios had >2.5g acceleration (unrealistic).
 
-def calculate_plausibility_score(trace_df, dt=0.1):
-    # Add: Calculate accel from velocity if missing
-    if 'ego_acceleration' not in trace_df.columns:
-        trace_df['ego_acceleration'] = trace_df['ego_velocity'].diff() / dt
-    
-    max_accel = trace_df['ego_acceleration'].abs().max()
-    
-    # Check threshold - 2g (20 m/s²) may be too strict
-    MAX_ACCEL = 20.0  
-    MAX_JERK = 10.0
-    
-    # Calculate jerk
-    jerk = trace_df['ego_acceleration'].diff() / dt
-    max_jerk = jerk.abs().max()
-    
-    # Score (tune these weights)
-    accel_score = 100 if max_accel < MAX_ACCEL else 0
-    jerk_score = 100 if max_jerk < MAX_JERK else 0
-    
-    return (accel_score + jerk_score) / 2
+## 2. Re-run Falsification with Fixed Scenarios (3-5 days) - CRITICAL
+
+**Start fresh** with the fixed scenario generator:
+
+```bash
+# Option A: Start completely new run (recommended)
+python falsification_framework.py \
+    --carla-project csci513-miniproject1 \
+    --output-dir falsification_fixed \
+    --n-iterations 500 \
+    --init-points 20 \
+    --checkpoint-interval 25 \
+    --random-state 43
+
+# Option B: Continue from iteration 107 (if you want to keep history)
+python falsification_framework.py \
+    --carla-project csci513-miniproject1 \
+    --output-dir my_falsification_run \
+    --n-iterations 500 \
+    --checkpoint-interval 25 \
+    --resume-from my_falsification_run/results/checkpoint_0100.json
 ```
 
-### Fix comfort calculation:
-```python
-def calculate_comfort_score(trace_df, dt=0.1):
-    # Calculate jerk
-    if 'ego_jerk' not in trace_df.columns:
-        accel = trace_df['ego_acceleration']
-        trace_df['ego_jerk'] = accel.diff() / dt
-    
-    total_jerk = trace_df['ego_jerk'].abs().sum()
-    
-    # Hard braking (> 0.3g)
-    THRESHOLD = 3.0  # m/s²
-    hard_events = (trace_df['ego_acceleration'].abs() > THRESHOLD).sum()
-    
-    # Normalize (tune these)
-    jerk_score = max(0, 100 - total_jerk / 10)
-    event_score = max(0, 100 - hard_events * 5)
-    
-    return (jerk_score + event_score) / 2
-```
+**Expected results:**
+- Plausibility: Should see 60-80% non-zero (instead of 29%)
+- Comfort: Should see 60-80% non-zero (instead of 30%)
+- Realistic multi-objective trade-offs
 
-### Test fixes:
-```python
-# test_metrics.py
-from metrics.objective_functions import evaluate_trace_file
+---
 
-for scenario in ['0021', '0043']:
-    log = f'logs/episode-scenario_{scenario}.csv'
-    obj = evaluate_trace_file(log, dt=0.1)
-    print(f"{scenario}: safety={obj['safety']:.1f}, plaus={obj['plausibility']:.1f}, comfort={obj['comfort']:.1f}")
-
-# Should see non-zero plausibility & comfort
-```
-
-## 2. Continue Optimization (3-5 days)
+## 3. Monitor Progress
 
 ```bash
 # Resume to 500 iterations
@@ -83,7 +65,7 @@ python falsification_framework.py \
     --resume-from my_falsification_run/results/checkpoint_0100.json
 ```
 
-## 3. Final Analysis (1 day)
+## 4. Final Analysis (1 day)
 
 ```bash
 # Generate Pareto front
@@ -97,7 +79,7 @@ python visualize_results.py
 # Select critical scenarios for testing/presentation
 ```
 
-## 4. Documentation (1-2 days)
+## 5. Documentation (1-2 days)
 
 - Final report
 - Presentation slides (include videos of critical scenarios)
@@ -107,5 +89,9 @@ python visualize_results.py
 
 **Timeline:** ~7-10 days total
 
-**Priority:** Fix metrics today → continue to 500 iterations → analyze final Pareto front
+**Status:**
+- ✓ Root cause found: Instant brake commands in scenario_generator.py
+- ✓ Fix applied: Exponential smoothing (alpha=0.3)
+- ⏳ Next: Re-run falsification with fixed scenarios → 500 iterations
+- ⏳ Then: Final analysis with realistic Pareto front
 

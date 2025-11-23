@@ -104,7 +104,7 @@ def generate_lead_vehicle_actions(params: Dict[str, float],
     The lead vehicle behavior is generated using:
     - Base throttle with sinusoidal variations
     - Random braking events based on probability
-    - Smooth transitions between actions
+    - SMOOTH transitions between actions (exponential smoothing)
     
     Args:
         params: Dictionary with lead vehicle behavior parameters
@@ -126,10 +126,17 @@ def generate_lead_vehicle_actions(params: Dict[str, float],
     brake_intensity = params.get('lead_brake_intensity', 0.5)
     brake_duration = int(params.get('lead_brake_duration', 10))
     
+    # Smoothing parameters - prevents unrealistic step functions
+    SMOOTHING_ALPHA = 0.3  # Higher = faster response, lower = smoother
+    
     actions = []
     time = 0.0
     braking = False
     brake_timer = 0
+    
+    # State for exponential smoothing
+    current_throttle = base_throttle
+    current_brake = 0.0
     
     for step in range(num_timesteps):
         # Check if we should start braking
@@ -138,27 +145,31 @@ def generate_lead_vehicle_actions(params: Dict[str, float],
             brake_timer = brake_duration
         
         if braking:
-            # Apply braking
-            throttle = 0.0
-            brake = brake_intensity
+            # Target: braking
+            target_throttle = 0.0
+            target_brake = brake_intensity
             brake_timer -= 1
             
             if brake_timer <= 0:
                 braking = False
         else:
-            # Normal throttle with sinusoidal variation
-            # Frequency in rad/s
+            # Target: normal throttle with sinusoidal variation
             omega = 2 * np.pi * behavior_freq
             variation = throttle_var * np.sin(omega * time)
-            throttle = np.clip(base_throttle + variation, 0.0, 1.0)
-            brake = 0.0
+            target_throttle = np.clip(base_throttle + variation, 0.0, 1.0)
+            target_brake = 0.0
+        
+        # Exponential smoothing for realistic transitions
+        # This prevents instant acceleration changes that violate physics
+        current_throttle = SMOOTHING_ALPHA * target_throttle + (1 - SMOOTHING_ALPHA) * current_throttle
+        current_brake = SMOOTHING_ALPHA * target_brake + (1 - SMOOTHING_ALPHA) * current_brake
         
         # Keep steering minimal (straight line)
         steer = 0.0
         
         actions.append({
-            'throttle': float(throttle),
-            'brake': float(brake),
+            'throttle': float(current_throttle),
+            'brake': float(current_brake),
             'steer': float(steer),
         })
         

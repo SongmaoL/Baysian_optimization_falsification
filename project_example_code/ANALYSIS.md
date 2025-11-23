@@ -29,24 +29,21 @@ This is exactly what the project aimed for - realistic dangerous scenario.
 - Found critical scenarios (safety 0→95.79 range)
 - GP models converging properly (based on safety metric)
 
-## Issues
+## Issues (FIXED ✓)
 
-### 1. Plausibility Metric (Critical)
-- **Problem:** 76/107 scenarios (71%) return 0.0
-- **Expected:** Gradual distribution 0-100
-- **Impact:** Can't properly analyze multi-objective trade-offs
-- **Likely causes:** 
-  - Metric not calculated (check `calculate_plausibility_score()`)
-  - 2g threshold too strict
-  - Missing acceleration data in CSV logs
+### Root Cause Identified: Instant Brake Commands
 
-### 2. Comfort Metric (Critical)
-- **Problem:** 75/107 scenarios (70%) return 0.0
-- **Similar pattern to plausibility**
-- **Likely causes:**
-  - Jerk calculation issues
-  - Missing dt parameter
-  - Threshold problems
+**Problem:** `scenario_generator.py` used step functions for brake commands:
+- Brake: 0.0 → 0.8 instantly (unrealistic)
+- Creates huge acceleration spikes when lead vehicle brakes
+- Results in >2g acceleration → plausibility=0 (correctly!)
+
+**Fix Applied:** Added exponential smoothing (alpha=0.3) to brake/throttle transitions
+- Takes ~0.3-0.5s to reach target brake level
+- Realistic acceleration profiles
+- Should reduce implausible scenarios significantly
+
+**Next:** Re-run falsification with fixed scenario generator to generate realistic scenarios
 
 ### 3. Insufficient Iterations
 - Only 107/500 minimum completed (21%)

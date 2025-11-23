@@ -116,7 +116,7 @@ PARAMETER_DESCRIPTIONS = {
 PLAUSIBILITY_CONSTRAINTS = {
     # Maximum longitudinal acceleration (m/s²)
     # Passenger cars: typically < 10 m/s² (1g)
-    # Emergency braking: < 20 m/s² (2g)
+    # Emergency braking: < 20 m/s² (2g) - PHYSICAL LIMIT
     "max_longitudinal_accel": 20.0,  # 2g
     "comfortable_max_accel": 10.0,   # 1g
     
