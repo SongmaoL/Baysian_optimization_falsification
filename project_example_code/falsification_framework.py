@@ -75,9 +75,9 @@ class CARLASimulationRunner:
         # Build command
         cmd = [
             sys.executable, "-m", "mp1_simulator",
-            str(scenario_path),
-            "--log-dir", str(self.log_dir),
-            "--vid-dir", str(self.vid_dir),
+            str(scenario_path.resolve()),
+            "--log-dir", str(self.log_dir.resolve()),
+            "--vid-dir", str(self.vid_dir.resolve()),
         ]
         
         if self.render:
@@ -100,12 +100,12 @@ class CARLASimulationRunner:
                 return None
             
             # Find the generated log file
-            # Simulation creates logs with pattern: episode-{scenario_name}.csv
+            # Simulation creates logs with scenario name prefixed with 'episode-'
             scenario_name = scenario_path.stem
             log_file = self.log_dir / f"episode-{scenario_name}.csv"
             
             if not log_file.exists():
-                # Try to find most recent log file as fallback
+                # Fallback: Try to find most recent log file
                 log_files = sorted(self.log_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if log_files:
                     log_file = log_files[0]
