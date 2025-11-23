@@ -2,6 +2,13 @@
 
 A semantic falsification framework for finding critical test scenarios in CARLA that reveal optimal trade-offs between **safety violations**, **physical plausibility**, and **passenger comfort**.
 
+## 📚 Documentation
+
+- **[Quick Start Guide](docs/QUICKSTART.md)** - Get up and running quickly
+- **[Next Steps](docs/NEXT_STEPS.md)** - Current status and what to do next
+- **[Analysis Results](docs/ANALYSIS.md)** - 107 iteration analysis
+- **[Full Documentation Index](docs/)** - All documentation files
+
 ## Project Overview
 
 This framework uses **Multi-Objective Bayesian Optimization** to efficiently search the space of environmental parameters (weather conditions, lead vehicle behavior) to find scenarios that:
@@ -27,6 +34,12 @@ The goal is to find the **Pareto front** of scenarios that represent optimal tra
 ├── analysis/                        # Pareto front analysis and visualization
 │   ├── __init__.py
 │   └── pareto_analysis.py          # Plotting and scenario selection tools
+│
+├── docs/                            # Documentation
+│   ├── QUICKSTART.md               # Quick start guide
+│   ├── NEXT_STEPS.md               # Current status and next actions
+│   ├── ANALYSIS.md                 # Results analysis
+│   └── ...                         # More documentation
 │
 ├── scenario_generator.py           # Converts parameters to CARLA scenarios
 ├── multi_objective_bo.py           # Multi-objective Bayesian optimization
