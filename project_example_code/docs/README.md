@@ -10,14 +10,20 @@ Welcome to the Multi-Objective Bayesian Optimization Falsification Framework doc
 
 ### Results & Analysis
 - **[ANALYSIS.md](ANALYSIS.md)** - Analysis of 107 iteration results
-  - Statistics and key findings
-  - Root cause: instant brake commands fixed
-  - BO implementation details
+- **[RUN2_ANALYSIS.md](RUN2_ANALYSIS.md)** - Analysis of run2 (44 iterations)
+  - Plausibility improved 29% → 82%
+  - Jerk issue identified and fixed
 
 - **[NEXT_STEPS.md](NEXT_STEPS.md)** - Actionable next steps
   - Re-run falsification with fixed scenarios
   - Expected improvements
   - Timeline
+
+### Technical Improvements
+- **[BO_IMPROVEMENTS.md](BO_IMPROVEMENTS.md)** - BO optimization improvements
+  - L-BFGS-B vs random sampling
+  - Warm starting GP models
+  - BoTorch/qEHVI recommendations
 
 ### Implementation
 - **[IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Complete framework overview

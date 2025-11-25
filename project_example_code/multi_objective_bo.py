@@ -182,7 +182,7 @@ class MultiObjectiveBayesianOptimization:
         return params
     
     def _fit_gp_models(self):
-        """Fit GP models to current data."""
+        """Fit GP models to current data with warm starting."""
         if len(self.evaluation_history) == 0:
             return
         
@@ -194,17 +194,22 @@ class MultiObjectiveBayesianOptimization:
         for obj_name in self.objective_names:
             y = np.array([r.objectives[obj_name] for r in self.evaluation_history])
             
-            # Create kernel
-            kernel = C(1.0, (1e-3, 1e3)) * Matern(
-                length_scale=np.ones(self.n_params) * 0.1,
-                length_scale_bounds=(1e-2, 1e2),
-                nu=2.5
-            )
+            # Warm start: reuse previous kernel if available
+            if self.gp_models[obj_name] is not None:
+                kernel = self.gp_models[obj_name].kernel_
+                n_restarts = 3  # Fewer restarts when warm starting
+            else:
+                kernel = C(1.0, (1e-3, 1e3)) * Matern(
+                    length_scale=np.ones(self.n_params) * 0.1,
+                    length_scale_bounds=(1e-2, 1e2),
+                    nu=2.5
+                )
+                n_restarts = 5  # More restarts for initial fit
             
             # Create and fit GP
             gp = GaussianProcessRegressor(
                 kernel=kernel,
-                n_restarts_optimizer=10,
+                n_restarts_optimizer=n_restarts,
                 alpha=1e-6,
                 normalize_y=True,
                 random_state=self.random_state
@@ -272,39 +277,52 @@ class MultiObjectiveBayesianOptimization:
         
         return weights
     
-    def suggest_next(self, n_random_samples: int = 1000) -> Dict[str, float]:
+    def suggest_next(self, n_restarts: int = 10, init_points: int = 5) -> Dict[str, float]:
         """
         Suggest next parameter configuration to evaluate.
         
-        Uses random sampling of acquisition function with random weights.
+        Uses L-BFGS-B optimization of acquisition function (faster than random sampling).
         
         Args:
-            n_random_samples: Number of random candidates to evaluate
+            n_restarts: Number of random restarts for L-BFGS-B
+            init_points: Number of initial random explorations
             
         Returns:
             Parameter dictionary for next evaluation
         """
-        # If we don't have enough data, return random parameters
-        if len(self.evaluation_history) < 3:
+        from scipy.optimize import minimize
+        
+        # Initial random exploration phase
+        if len(self.evaluation_history) < init_points:
             return self._denormalize_parameters(np.random.random(self.n_params))
         
         # Fit GP models
         self._fit_gp_models()
         
-        # Generate random weight vector
+        # Generate random weight vector for this iteration
         weights = self._generate_random_weights(focus_diversity=True)
         
-        # Random search over parameter space
+        # Multi-start L-BFGS-B optimization (much faster than random sampling)
         best_acquisition = -np.inf
         best_candidate = None
         
-        for _ in range(n_random_samples):
-            candidate = np.random.random(self.n_params)
-            acq_value = self._acquisition_function(candidate, weights)
+        for _ in range(n_restarts):
+            # Random starting point
+            x0 = np.random.random(self.n_params)
             
+            # Optimize acquisition function
+            result = minimize(
+                lambda x: -self._acquisition_function(x, weights),  # Negate for minimization
+                x0,
+                method='L-BFGS-B',
+                bounds=[(0, 1)] * self.n_params,
+                options={'maxiter': 50}
+            )
+            
+            acq_value = -result.fun
             if acq_value > best_acquisition:
                 best_acquisition = acq_value
-                best_candidate = candidate
+                best_candidate = result.x
         
         return self._denormalize_parameters(best_candidate)
     
