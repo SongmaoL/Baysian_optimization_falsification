@@ -1,28 +1,24 @@
 """
 Multi-Objective Bayesian Optimization Framework
 
-This module implements multi-objective Bayesian Optimization for the falsification
-framework. It maintains separate Gaussian Process models for each objective and
-uses a scalarization approach to balance exploration of the Pareto front.
+Uses the bayes_opt library with weighted scalarization for multi-objective optimization.
+Much simpler than the previous custom implementation!
 """
 
 import numpy as np
 import json
+import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Callable, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
-import pickle
 
-try:
-    from bayes_opt import BayesianOptimization
-    from bayes_opt import UtilityFunction
-    BAYESOPT_AVAILABLE = True
-except ImportError:
-    print("Warning: bayesian-optimization not installed. Install with: pip install bayesian-optimization")
-    BAYESOPT_AVAILABLE = False
+# Add local BayesianOptimization to path
+_bo_path = Path(__file__).parent / "BayesianOptimization"
+if _bo_path.exists():
+    sys.path.insert(0, str(_bo_path))
 
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C, Matern
+from bayes_opt import BayesianOptimization
+from bayes_opt import acquisition
 
 
 # ============================================================================
@@ -51,56 +47,28 @@ class EvaluationResult:
 # ============================================================================
 
 class ParetoFront:
-    """
-    Manages the Pareto-optimal set of solutions.
-    
-    For our objectives:
-    - Safety: MINIMIZE (lower = more unsafe, which we want to find)
-    - Plausibility: MAXIMIZE (higher = more realistic)
-    - Comfort: MINIMIZE (lower = more uncomfortable, which we want to find)
-    """
+    """Manages the Pareto-optimal set of solutions."""
     
     def __init__(self):
         self.solutions: List[EvaluationResult] = []
     
-    def _dominates(self, result1: EvaluationResult, result2: EvaluationResult) -> bool:
-        """
-        Check if result1 Pareto dominates result2.
-        """
-        s1 = result1.objectives
-        s2 = result2.objectives
-        
-        # Convert to minimization (negate plausibility since we maximize it)
-        v1 = np.array([s1['safety'], -s1['plausibility'], s1['comfort']])
-        v2 = np.array([s2['safety'], -s2['plausibility'], s2['comfort']])
-        
-        # Dominates if better in at least one and not worse in any
-        better_in_one = np.any(v1 < v2)
-        not_worse_in_any = np.all(v1 <= v2)
-        
-        return better_in_one and not_worse_in_any
+    def _dominates(self, r1: EvaluationResult, r2: EvaluationResult) -> bool:
+        """Check if r1 Pareto dominates r2."""
+        # Convert to minimization (negate plausibility)
+        v1 = np.array([r1.objectives['safety'], -r1.objectives['plausibility'], r1.objectives['comfort']])
+        v2 = np.array([r2.objectives['safety'], -r2.objectives['plausibility'], r2.objectives['comfort']])
+        return np.any(v1 < v2) and np.all(v1 <= v2)
     
     def add(self, result: EvaluationResult) -> bool:
-        """
-        Add a result to Pareto front if non-dominated.
-        
-        Returns:
-            True if result was added (is non-dominated)
-        """
-        # Check if any existing solution dominates this one
+        """Add result if non-dominated. Returns True if added."""
         for existing in self.solutions:
             if self._dominates(existing, result):
-                return False  # Dominated, don't add
-        
-        # Remove any solutions dominated by this one
+                return False
         self.solutions = [s for s in self.solutions if not self._dominates(result, s)]
-        
-        # Add the new solution
         self.solutions.append(result)
         return True
     
     def get_solutions(self) -> List[EvaluationResult]:
-        """Get all Pareto-optimal solutions."""
         return self.solutions.copy()
     
     def __len__(self) -> int:
@@ -108,15 +76,16 @@ class ParetoFront:
 
 
 # ============================================================================
-# MULTI-OBJECTIVE BAYESIAN OPTIMIZATION
+# MULTI-OBJECTIVE BAYESIAN OPTIMIZATION (Using bayes_opt library)
 # ============================================================================
 
 class MultiObjectiveBayesianOptimization:
     """
-    Multi-objective Bayesian Optimization using weighted scalarization.
+    Multi-objective BO using bayes_opt library with weighted scalarization.
     
-    Uses separate GP models for each objective and adaptively explores
-    the Pareto front using different weight combinations.
+    Strategy: Each iteration uses random weights to explore different
+    regions of the Pareto front. The bayes_opt library handles all the
+    GP fitting and acquisition optimization internally.
     """
     
     def __init__(self, 
@@ -135,7 +104,6 @@ class MultiObjectiveBayesianOptimization:
         """
         self.parameter_bounds = parameter_bounds
         self.parameter_names = list(parameter_bounds.keys())
-        self.n_params = len(self.parameter_names)
         
         # Objectives
         if objective_names is None:
@@ -143,19 +111,14 @@ class MultiObjectiveBayesianOptimization:
         self.objective_names = objective_names
         self.n_objectives = len(objective_names)
         
-        # Which objectives to maximize (rest are minimized)
+        # Which objectives to maximize
         if maximize_objectives is None:
-            maximize_objectives = [False, True, False]  # [safety, plausibility, comfort]
+            maximize_objectives = [False, True, False]
         self.maximize_objectives = maximize_objectives
         
         # Storage
         self.evaluation_history: List[EvaluationResult] = []
         self.pareto_front = ParetoFront()
-        
-        # GP models - one per objective
-        self.gp_models: Dict[str, Optional[GaussianProcessRegressor]] = {
-            obj: None for obj in objective_names
-        }
         
         # Random state
         self.random_state = random_state
@@ -163,168 +126,75 @@ class MultiObjectiveBayesianOptimization:
         
         # Iteration counter
         self.iteration = 0
-    
-    def _normalize_parameters(self, params: Dict[str, float]) -> np.ndarray:
-        """Normalize parameters to [0, 1] range."""
-        normalized = []
-        for param_name in self.parameter_names:
-            min_val, max_val = self.parameter_bounds[param_name]
-            value = params[param_name]
-            normalized.append((value - min_val) / (max_val - min_val))
-        return np.array(normalized)
-    
-    def _denormalize_parameters(self, normalized: np.ndarray) -> Dict[str, float]:
-        """Denormalize parameters from [0, 1] to original range."""
-        params = {}
-        for i, param_name in enumerate(self.parameter_names):
-            min_val, max_val = self.parameter_bounds[param_name]
-            params[param_name] = normalized[i] * (max_val - min_val) + min_val
-        return params
-    
-    def _fit_gp_models(self):
-        """Fit GP models to current data with warm starting."""
-        if len(self.evaluation_history) == 0:
-            return
         
-        # Prepare training data
-        X = np.array([self._normalize_parameters(r.parameters) 
-                     for r in self.evaluation_history])
-        
-        # Fit a GP for each objective
-        for obj_name in self.objective_names:
-            y = np.array([r.objectives[obj_name] for r in self.evaluation_history])
-            
-            # Warm start: reuse previous kernel if available
-            if self.gp_models[obj_name] is not None:
-                kernel = self.gp_models[obj_name].kernel_
-                n_restarts = 3  # Fewer restarts when warm starting
-            else:
-                kernel = C(1.0, (1e-3, 1e3)) * Matern(
-                    length_scale=np.ones(self.n_params) * 0.1,
-                    length_scale_bounds=(1e-2, 1e2),
-                    nu=2.5
-                )
-                n_restarts = 5  # More restarts for initial fit
-            
-            # Create and fit GP
-            gp = GaussianProcessRegressor(
-                kernel=kernel,
-                n_restarts_optimizer=n_restarts,
-                alpha=1e-6,
-                normalize_y=True,
-                random_state=self.random_state
-            )
-            gp.fit(X, y)
-            
-            self.gp_models[obj_name] = gp
+        # Initialize bayes_opt optimizer (no function - we register results manually)
+        self._init_optimizer()
     
-    def _acquisition_function(self, 
-                             X_candidate: np.ndarray, 
-                             weights: np.ndarray,
-                             exploration_param: float = 2.0) -> float:
+    def _init_optimizer(self):
+        """Initialize the bayes_opt optimizer."""
+        # UCB acquisition function with exploration
+        acq_func = acquisition.UpperConfidenceBound(kappa=2.5)
+        
+        self.optimizer = BayesianOptimization(
+            f=None,  # No function - we register results manually
+            pbounds=self.parameter_bounds,
+            acquisition_function=acq_func,
+            random_state=self.random_state,
+            verbose=0,  # Quiet mode
+            allow_duplicate_points=True
+        )
+    
+    def _scalarize_objectives(self, objectives: Dict[str, float], weights: np.ndarray) -> float:
         """
-        Scalarized acquisition function using Upper Confidence Bound.
+        Convert multi-objective to single scalar using weighted sum.
         
         Args:
-            X_candidate: Normalized parameter vector
-            weights: Weight vector for objectives
-            exploration_param: Exploration parameter (higher = more exploration)
+            objectives: Dict with objective values
+            weights: Weight vector (sums to 1)
             
         Returns:
-            Acquisition value (higher is better)
+            Scalar value (higher is better for bayes_opt)
         """
-        acquisition_value = 0.0
-        
+        score = 0.0
         for i, obj_name in enumerate(self.objective_names):
-            gp = self.gp_models[obj_name]
-            if gp is None:
-                continue
-            
-            # Predict mean and std
-            X_candidate_2d = X_candidate.reshape(1, -1)
-            mean, std = gp.predict(X_candidate_2d, return_std=True)
-            mean, std = mean[0], std[0]
-            
-            # UCB: mean + kappa * std (for maximization)
-            # For minimization, use: mean - kappa * std
-            if self.maximize_objectives[i]:
-                ucb = mean + exploration_param * std
-            else:
-                ucb = mean - exploration_param * std
-            
-            # Weight and accumulate
-            acquisition_value += weights[i] * ucb
-        
-        return acquisition_value
+            value = objectives[obj_name]
+            # Negate if minimizing (bayes_opt maximizes)
+            if not self.maximize_objectives[i]:
+                value = -value
+            score += weights[i] * value
+        return score
     
-    def _generate_random_weights(self, focus_diversity: bool = True) -> np.ndarray:
+    def _generate_weights(self) -> np.ndarray:
+        """Generate random weights using Dirichlet distribution."""
+        return np.random.dirichlet(np.ones(self.n_objectives))
+    
+    def suggest_next(self, init_points: int = 5) -> Dict[str, float]:
         """
-        Generate random weight vector for scalarization.
+        Suggest next parameters to evaluate.
         
         Args:
-            focus_diversity: If True, use more diverse weights
-            
-        Returns:
-            Weight vector (sums to 1)
-        """
-        if focus_diversity:
-            # Use Dirichlet distribution for more diverse weights
-            weights = np.random.dirichlet(np.ones(self.n_objectives))
-        else:
-            # Uniform random weights
-            weights = np.random.random(self.n_objectives)
-            weights /= weights.sum()
-        
-        return weights
-    
-    def suggest_next(self, n_restarts: int = 10, init_points: int = 5) -> Dict[str, float]:
-        """
-        Suggest next parameter configuration to evaluate.
-        
-        Uses L-BFGS-B optimization of acquisition function (faster than random sampling).
-        
-        Args:
-            n_restarts: Number of random restarts for L-BFGS-B
-            init_points: Number of initial random explorations
+            init_points: Number of random initial explorations
             
         Returns:
             Parameter dictionary for next evaluation
         """
-        from scipy.optimize import minimize
-        
-        # Initial random exploration phase
+        # Initial random exploration
         if len(self.evaluation_history) < init_points:
-            return self._denormalize_parameters(np.random.random(self.n_params))
+            params = {}
+            for name, (low, high) in self.parameter_bounds.items():
+                params[name] = np.random.uniform(low, high)
+            return params
         
-        # Fit GP models
-        self._fit_gp_models()
+        # Use bayes_opt to suggest next point
+        try:
+            params = self.optimizer.suggest()
+        except Exception:
+            # Fallback to random if suggestion fails
+            params = {}
+            for name, (low, high) in self.parameter_bounds.items():
+                params[name] = np.random.uniform(low, high)
         
-        # Generate random weight vector for this iteration
-        weights = self._generate_random_weights(focus_diversity=True)
-        
-        # Multi-start L-BFGS-B optimization (much faster than random sampling)
-        best_acquisition = -np.inf
-        best_candidate = None
-        
-        for _ in range(n_restarts):
-            # Random starting point
-            x0 = np.random.random(self.n_params)
-            
-            # Optimize acquisition function
-            result = minimize(
-                lambda x: -self._acquisition_function(x, weights),  # Negate for minimization
-                x0,
-                method='L-BFGS-B',
-                bounds=[(0, 1)] * self.n_params,
-                options={'maxiter': 50}
-            )
-            
-            acq_value = -result.fun
-            if acq_value > best_acquisition:
-                best_acquisition = acq_value
-                best_candidate = result.x
-        
-        return self._denormalize_parameters(best_candidate)
+        return params
     
     def register_evaluation(self, 
                           parameters: Dict[str, float],
@@ -338,34 +208,41 @@ class MultiObjectiveBayesianOptimization:
             objectives: Objective function values
             metadata: Optional additional information
         """
+        # Store result
         result = EvaluationResult(
             parameters=parameters,
             objectives=objectives,
             iteration=self.iteration,
             metadata=metadata
         )
-        
         self.evaluation_history.append(result)
         self.pareto_front.add(result)
+        
+        # Generate weights for this evaluation and compute scalar target
+        weights = self._generate_weights()
+        target = self._scalarize_objectives(objectives, weights)
+        
+        # Register with bayes_opt optimizer
+        try:
+            self.optimizer.register(params=parameters, target=target)
+        except Exception:
+            pass  # Ignore duplicate point errors
+        
         self.iteration += 1
     
     def get_pareto_front(self) -> List[EvaluationResult]:
         """Get current Pareto-optimal solutions."""
         return self.pareto_front.get_solutions()
     
-    def get_best_by_objective(self, objective_name: str) -> EvaluationResult:
+    def get_best_by_objective(self, objective_name: str) -> Optional[EvaluationResult]:
         """Get best solution for a single objective."""
-        if len(self.evaluation_history) == 0:
+        if not self.evaluation_history:
             return None
         
         maximize = self.maximize_objectives[self.objective_names.index(objective_name)]
+        key = lambda r: r.objectives[objective_name]
         
-        if maximize:
-            return max(self.evaluation_history, 
-                      key=lambda r: r.objectives[objective_name])
-        else:
-            return min(self.evaluation_history,
-                      key=lambda r: r.objectives[objective_name])
+        return max(self.evaluation_history, key=key) if maximize else min(self.evaluation_history, key=key)
     
     def save_state(self, filepath: Path):
         """Save optimization state to file."""
@@ -378,6 +255,7 @@ class MultiObjectiveBayesianOptimization:
             'random_state': self.random_state,
         }
         
+        filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, 'w') as f:
             json.dump(state, f, indent=2)
@@ -396,35 +274,41 @@ class MultiObjectiveBayesianOptimization:
         self.random_state = state['random_state']
         
         # Reconstruct evaluation history
-        self.evaluation_history = [
-            EvaluationResult.from_dict(r) for r in state['evaluation_history']
-        ]
+        self.evaluation_history = [EvaluationResult.from_dict(r) for r in state['evaluation_history']]
         
         # Rebuild Pareto front
         self.pareto_front = ParetoFront()
         for result in self.evaluation_history:
             self.pareto_front.add(result)
         
-        print(f"Loaded optimization state from {filepath}")
-        print(f"  Evaluations: {len(self.evaluation_history)}")
+        # Re-register all points with optimizer
+        self._init_optimizer()
+        for result in self.evaluation_history:
+            weights = self._generate_weights()
+            target = self._scalarize_objectives(result.objectives, weights)
+            try:
+                self.optimizer.register(params=result.parameters, target=target)
+            except Exception:
+                pass
+        
+        print(f"Loaded {len(self.evaluation_history)} evaluations from {filepath}")
         print(f"  Pareto front size: {len(self.pareto_front)}")
     
     def print_summary(self):
         """Print summary of optimization progress."""
-        print("=" * 80)
+        print("=" * 70)
         print("MULTI-OBJECTIVE BAYESIAN OPTIMIZATION SUMMARY")
-        print("=" * 80)
+        print("=" * 70)
         print(f"Iterations: {self.iteration}")
-        print(f"Total evaluations: {len(self.evaluation_history)}")
-        print(f"Pareto front size: {len(self.pareto_front)}")
+        print(f"Evaluations: {len(self.evaluation_history)}")
+        print(f"Pareto front: {len(self.pareto_front)} solutions")
         
-        print("\nBest by each objective:")
+        print("\nBest by objective:")
         for obj_name in self.objective_names:
             best = self.get_best_by_objective(obj_name)
             if best:
-                print(f"  {obj_name}: {best.objectives[obj_name]:.4f}")
-        
-        print("=" * 80)
+                print(f"  {obj_name}: {best.objectives[obj_name]:.2f}")
+        print("=" * 70)
 
 
 # ============================================================================
@@ -434,40 +318,34 @@ class MultiObjectiveBayesianOptimization:
 if __name__ == "__main__":
     from config.search_space import get_parameter_bounds
     
-    print("=" * 80)
-    print("MULTI-OBJECTIVE BAYESIAN OPTIMIZATION")
-    print("=" * 80)
+    print("=" * 70)
+    print("MULTI-OBJECTIVE BO (using bayes_opt library)")
+    print("=" * 70)
     
-    # Initialize optimizer
+    # Initialize
     bounds = get_parameter_bounds()
     optimizer = MultiObjectiveBayesianOptimization(
         parameter_bounds=bounds,
         random_state=42
     )
     
-    print(f"\nInitialized with {len(bounds)} parameters")
+    print(f"\nParameters: {len(bounds)}")
     print(f"Objectives: {optimizer.objective_names}")
     
-    # Simulate a few evaluations
-    print("\nSimulating evaluations...")
-    for i in range(5):
-        # Get next parameters to evaluate
+    # Simulate evaluations
+    print("\nSimulating 10 evaluations...")
+    for i in range(10):
         params = optimizer.suggest_next()
         
-        # Simulate objective evaluations (random values for demo)
+        # Fake objectives (random for demo)
         objectives = {
             'safety': np.random.uniform(20, 80),
             'plausibility': np.random.uniform(40, 90),
             'comfort': np.random.uniform(30, 70),
         }
         
-        # Register result
         optimizer.register_evaluation(params, objectives)
-        print(f"  Iteration {i+1}: safety={objectives['safety']:.2f}, "
-              f"plausibility={objectives['plausibility']:.2f}, "
-              f"comfort={objectives['comfort']:.2f}")
+        print(f"  {i+1}: safety={objectives['safety']:.1f}, plaus={objectives['plausibility']:.1f}, comfort={objectives['comfort']:.1f}")
     
-    # Print summary
     print()
     optimizer.print_summary()
-
