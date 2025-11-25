@@ -1,0 +1,388 @@
+{
+  "parameter_bounds": {
+    "fog_density": [
+      0.0,
+      80.0
+    ],
+    "precipitation": [
+      0.0,
+      100.0
+    ],
+    "precipitation_deposits": [
+      0.0,
+      100.0
+    ],
+    "wind_intensity": [
+      0.0,
+      50.0
+    ],
+    "sun_altitude_angle": [
+      -30.0,
+      90.0
+    ],
+    "cloudiness": [
+      0.0,
+      100.0
+    ],
+    "lead_base_throttle": [
+      0.2,
+      0.6
+    ],
+    "lead_behavior_frequency": [
+      0.05,
+      0.3
+    ],
+    "lead_throttle_variation": [
+      0.0,
+      0.4
+    ],
+    "lead_brake_probability": [
+      0.0,
+      0.3
+    ],
+    "lead_brake_intensity": [
+      0.1,
+      0.8
+    ],
+    "lead_brake_duration": [
+      5,
+      30
+    ],
+    "initial_distance": [
+      15.0,
+      80.0
+    ],
+    "initial_ego_velocity": [
+      5.0,
+      20.0
+    ],
+    "initial_lead_velocity": [
+      5.0,
+      25.0
+    ]
+  },
+  "objective_names": [
+    "safety",
+    "plausibility",
+    "comfort"
+  ],
+  "maximize_objectives": [
+    false,
+    true,
+    false
+  ],
+  "evaluation_history": [
+    {
+      "parameters": {
+        "fog_density": 29.963209507789,
+        "precipitation": 95.07143064099162,
+        "precipitation_deposits": 73.1993941811405,
+        "wind_intensity": 29.93292420985183,
+        "sun_altitude_angle": -11.277763146907617,
+        "cloudiness": 15.599452033620265,
+        "lead_base_throttle": 0.2232334448672798,
+        "lead_behavior_frequency": 0.2665440364437338,
+        "lead_throttle_variation": 0.24044600469728353,
+        "lead_brake_probability": 0.21242177333881365,
+        "lead_brake_intensity": 0.11440914600706172,
+        "lead_brake_duration": 29.24774630404986,
+        "initial_distance": 69.10877165202741,
+        "initial_ego_velocity": 8.185086660174143,
+        "initial_lead_velocity": 8.636499344142013
+      },
+      "objectives": {
+        "safety": 12.477269952073396,
+        "plausibility": 0.0,
+        "comfort": 0.0
+      },
+      "iteration": 0,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0000.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0000.csv",
+        "timestamp": 1764001434.4625578
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 40.85978420620526,
+        "precipitation": 41.7411003148779,
+        "precipitation_deposits": 22.210781047073024,
+        "wind_intensity": 5.99326836668414,
+        "sun_altitude_angle": 10.513820568435357,
+        "cloudiness": 94.29097039125192,
+        "lead_base_throttle": 0.3292811728083021,
+        "lead_behavior_frequency": 0.17969765543584154,
+        "lead_throttle_variation": 0.28120758355807113,
+        "lead_brake_probability": 0.1090888807137882,
+        "lead_brake_intensity": 0.7802474579046725,
+        "lead_brake_duration": 29.061182373552782,
+        "initial_distance": 31.36584922864867,
+        "initial_ego_velocity": 12.45872758838578,
+        "initial_lead_velocity": 11.017566196335393
+      },
+      "objectives": {
+        "safety": 7.647123957652834,
+        "plausibility": 0.0,
+        "comfort": 0.0
+      },
+      "iteration": 1,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0001.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0001.csv",
+        "timestamp": 1764001445.8659945
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 26.759119324234586,
+        "precipitation": 96.92555038310559,
+        "precipitation_deposits": 70.09756894333043,
+        "wind_intensity": 20.684276736666817,
+        "sun_altitude_angle": -15.509739538105505,
+        "cloudiness": 6.036354435155367,
+        "lead_base_throttle": 0.49048466950431,
+        "lead_behavior_frequency": 0.2763627460783684,
+        "lead_throttle_variation": 0.006410367172847576,
+        "lead_brake_probability": 0.17524224921407602,
+        "lead_brake_intensity": 0.6100228351459861,
+        "lead_brake_duration": 12.304938606900205,
+        "initial_distance": 48.98184506127084,
+        "initial_ego_velocity": 17.222778293759266,
+        "initial_lead_velocity": 16.926539603537314
+      },
+      "objectives": {
+        "safety": 7.943690280158724,
+        "plausibility": 0.0,
+        "comfort": 0.0
+      },
+      "iteration": 2,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0002.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0002.csv",
+        "timestamp": 1764001457.3479617
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 0.9538806801068755,
+        "precipitation": 9.769344299085548,
+        "precipitation_deposits": 91.21359157400657,
+        "wind_intensity": 27.353070459456685,
+        "sun_altitude_angle": -15.483666747839745,
+        "cloudiness": 36.65647195201876,
+        "lead_base_throttle": 0.4224199380650149,
+        "lead_behavior_frequency": 0.2891565087324621,
+        "lead_throttle_variation": 0.3070191154712301,
+        "lead_brake_probability": 0.22399997754982998,
+        "lead_brake_intensity": 0.10648315069140034,
+        "lead_brake_duration": 29.446901125874824,
+        "initial_distance": 69.33889457689466,
+        "initial_ego_velocity": 17.477459712732703,
+        "initial_lead_velocity": 16.92570747398637
+      },
+      "objectives": {
+        "safety": 25.9467152772072,
+        "plausibility": 47.474903930634184,
+        "comfort": 0.0
+      },
+      "iteration": 3,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0003.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0003.csv",
+        "timestamp": 1764001469.40502
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 25.535801665059257,
+        "precipitation": 39.5762542841611,
+        "precipitation_deposits": 91.18964794864787,
+        "wind_intensity": 19.231171615429815,
+        "sun_altitude_angle": 19.3309680511259,
+        "cloudiness": 38.01102695607915,
+        "lead_base_throttle": 0.5838187635108637,
+        "lead_behavior_frequency": 0.2884959153041304,
+        "lead_throttle_variation": 0.2258163002689161,
+        "lead_brake_probability": 0.12041557170385475,
+        "lead_brake_intensity": 0.15933962915936087,
+        "lead_brake_duration": 10.819743277793261,
+        "initial_distance": 72.26345538330548,
+        "initial_ego_velocity": 17.540294991948983,
+        "initial_lead_velocity": 17.180946342566266
+      },
+      "objectives": {
+        "safety": 24.33438028354979,
+        "plausibility": 46.72550730549605,
+        "comfort": 0.0
+      },
+      "iteration": 4,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0004.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0004.csv",
+        "timestamp": 1764001481.3628116
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 53.631537781643566,
+        "precipitation": 6.1111715848226495,
+        "precipitation_deposits": 94.60668485214437,
+        "wind_intensity": 21.450488551708418,
+        "sun_altitude_angle": 17.44873734631507,
+        "cloudiness": 22.19478475510408,
+        "lead_base_throttle": 0.40395410177152624,
+        "lead_behavior_frequency": 0.0557799886756364,
+        "lead_throttle_variation": 0.3431455062555775,
+        "lead_brake_probability": 0.25691540811689917,
+        "lead_brake_intensity": 0.19527028610345837,
+        "lead_brake_duration": 8.770445977403735,
+        "initial_distance": 72.6935633890142,
+        "initial_ego_velocity": 11.137874196977911,
+        "initial_lead_velocity": 11.613468157798184
+      },
+      "objectives": {
+        "safety": 13.906699578843778,
+        "plausibility": 0.0,
+        "comfort": 0.0
+      },
+      "iteration": 5,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0005.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0005.csv",
+        "timestamp": 1764001493.7564406
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 53.7288126776142,
+        "precipitation": 29.61365503517034,
+        "precipitation_deposits": 89.84931705398739,
+        "wind_intensity": 31.925823350645864,
+        "sun_altitude_angle": 59.88659999160697,
+        "cloudiness": 73.24328987862347,
+        "lead_base_throttle": 0.40563766043726956,
+        "lead_behavior_frequency": 0.2833519661346918,
+        "lead_throttle_variation": 0.24894645360118495,
+        "lead_brake_probability": 0.0942182331834553,
+        "lead_brake_intensity": 0.648380064218252,
+        "lead_brake_duration": 24.60851454653784,
+        "initial_distance": 68.82001101777041,
+        "initial_ego_velocity": 14.405275632033979,
+        "initial_lead_velocity": 22.493132278236985
+      },
+      "objectives": {
+        "safety": 8.168094492778037,
+        "plausibility": 0.0,
+        "comfort": 0.0
+      },
+      "iteration": 6,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0006.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0006.csv",
+        "timestamp": 1764001505.7505455
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 24.09362811519342,
+        "precipitation": 17.167990453583805,
+        "precipitation_deposits": 79.42081696445015,
+        "wind_intensity": 33.410549626695044,
+        "sun_altitude_angle": 34.03196982029614,
+        "cloudiness": 60.76371405842301,
+        "lead_base_throttle": 0.556889175069093,
+        "lead_behavior_frequency": 0.2712453031983942,
+        "lead_throttle_variation": 0.17685877992829982,
+        "lead_brake_probability": 0.2783741463716541,
+        "lead_brake_intensity": 0.15549684270927244,
+        "lead_brake_duration": 13.015230459317877,
+        "initial_distance": 56.04861903303244,
+        "initial_ego_velocity": 17.762548499520342,
+        "initial_lead_velocity": 19.189098763665875
+      },
+      "objectives": {
+        "safety": 13.70852031452918,
+        "plausibility": 45.82912661756262,
+        "comfort": 0.0
+      },
+      "iteration": 7,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0007.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0007.csv",
+        "timestamp": 1764001517.8616433
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 50.69685693385356,
+        "precipitation": 18.49485850479715,
+        "precipitation_deposits": 57.68346092207891,
+        "wind_intensity": 28.460215071720846,
+        "sun_altitude_angle": 14.424876712784076,
+        "cloudiness": 64.21207995725368,
+        "lead_base_throttle": 0.5567904505680625,
+        "lead_behavior_frequency": 0.27757781752030025,
+        "lead_throttle_variation": 0.20092271147011856,
+        "lead_brake_probability": 0.26192446874048625,
+        "lead_brake_intensity": 0.4095260122814198,
+        "lead_brake_duration": 13.09661767457048,
+        "initial_distance": 50.73096445318832,
+        "initial_ego_velocity": 18.195754696813935,
+        "initial_lead_velocity": 12.638347740008928
+      },
+      "objectives": {
+        "safety": 7.662427730742429,
+        "plausibility": 0.0,
+        "comfort": 0.0
+      },
+      "iteration": 8,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0008.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0008.csv",
+        "timestamp": 1764001529.6649306
+      }
+    },
+    {
+      "parameters": {
+        "fog_density": 30.923071238654288,
+        "precipitation": 37.13240831939631,
+        "precipitation_deposits": 85.41190912807396,
+        "wind_intensity": 3.8309464986286343,
+        "sun_altitude_angle": 66.44455416884333,
+        "cloudiness": 92.95030550831613,
+        "lead_base_throttle": 0.40336837759886224,
+        "lead_behavior_frequency": 0.1723473360163944,
+        "lead_throttle_variation": 0.13075173528033096,
+        "lead_brake_probability": 0.06553903499388562,
+        "lead_brake_intensity": 0.1012375693823977,
+        "lead_brake_duration": 7.698268205467566,
+        "initial_distance": 54.07674910627438,
+        "initial_ego_velocity": 15.606867021687032,
+        "initial_lead_velocity": 10.119163648228366
+      },
+      "objectives": {
+        "safety": 20.354694050499848,
+        "plausibility": 42.73451482021826,
+        "comfort": 0.0
+      },
+      "iteration": 9,
+      "timestamp": null,
+      "metadata": {
+        "scenario_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/scenarios/scenario_0009.json",
+        "log_path": "/scratch1/akarande/Baysian_optimization_falsification/my_falsification_run/logs/episode-scenario_0009.csv",
+        "timestamp": 1764001541.8097396
+      }
+    }
+  ],
+  "iteration": 10,
+  "random_state": 42
+}

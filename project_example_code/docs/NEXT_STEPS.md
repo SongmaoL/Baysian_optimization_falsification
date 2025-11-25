@@ -1,14 +1,16 @@
 # Next Steps
 
-## ✓ FIXED: Root Cause Identified!
+## ✓ FIXED: Two Issues Identified!
 
-**Problem:** `scenario_generator.py` used instant step functions for brake commands
-- Brake went 0→0.8 instantly → unrealistic >2g acceleration
-- **71% plausibility=0 was CORRECT** - those scenarios violated physics!
+### Issue 1: Instant Brake Commands (Fixed in run1→run2)
+- **Problem:** Brake went 0→0.8 instantly → >2g acceleration
+- **Fix:** Added exponential smoothing (alpha=0.3)
+- **Result:** Plausibility improved 29% → 82% ✅
 
-**Fix:** Added exponential smoothing (alpha=0.3) to brake/throttle transitions
-- Now takes ~0.3-0.5s to transition (realistic)
-- Should generate physically plausible scenarios
+### Issue 2: High Jerk (Found in run2 analysis)
+- **Problem:** alpha=0.3 still causes jerk ~90 m/s³ (threshold: 10 m/s³)
+- **Fix:** Reduced alpha to 0.1 for smoother transitions (~1 second)
+- **Expected:** Jerk drops to ~10-20 m/s³, comfort becomes non-zero
 
 ---
 
@@ -90,8 +92,8 @@ python visualize_results.py
 **Timeline:** ~7-10 days total
 
 **Status:**
-- ✓ Root cause found: Instant brake commands in scenario_generator.py
-- ✓ Fix applied: Exponential smoothing (alpha=0.3)
-- ⏳ Next: Re-run falsification with fixed scenarios → 500 iterations
-- ⏳ Then: Final analysis with realistic Pareto front
+- ✓ Issue 1 fixed: Exponential smoothing added (run2 shows 82% plausibility)
+- ✓ Issue 2 fixed: Reduced alpha 0.3→0.1 to fix jerk (comfort should improve)
+- ⏳ Next: Run3 with both fixes → expect 70%+ for all three metrics
+- ⏳ Then: Continue to 500 iterations → final Pareto analysis
 
