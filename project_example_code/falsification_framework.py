@@ -371,8 +371,8 @@ def parse_args():
     parser.add_argument(
         "--init-points",
         type=int,
-        default=10,
-        help="Number of random initial iterations"
+        default=15,
+        help="Number of random initial iterations (recommended: 15-20 for 14D space)"
     )
     
     parser.add_argument(

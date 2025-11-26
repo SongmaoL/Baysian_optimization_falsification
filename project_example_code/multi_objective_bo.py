@@ -12,6 +12,12 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, asdict
 
+try:
+    from scipy.spatial.distance import cdist
+except ImportError:
+    # Fallback if scipy not available
+    cdist = None
+
 # Add local BayesianOptimization to path
 _bo_path = Path(__file__).parent / "BayesianOptimization"
 if _bo_path.exists():
@@ -132,8 +138,9 @@ class MultiObjectiveBayesianOptimization:
     
     def _init_optimizer(self):
         """Initialize the bayes_opt optimizer."""
-        # UCB acquisition function with exploration
-        acq_func = acquisition.UpperConfidenceBound(kappa=2.5)
+        # Start with higher exploration (kappa=3.0) for better initial exploration
+        # Will adaptively decrease over time
+        acq_func = acquisition.UpperConfidenceBound(kappa=3.0)
         
         self.optimizer = BayesianOptimization(
             f=None,  # No function - we register results manually
@@ -143,6 +150,10 @@ class MultiObjectiveBayesianOptimization:
             verbose=0,  # Quiet mode
             allow_duplicate_points=True
         )
+        
+        # Track for adaptive exploration
+        self.initial_kappa = 3.0
+        self.final_kappa = 1.0
     
     def _scalarize_objectives(self, objectives: Dict[str, float], weights: np.ndarray) -> float:
         """
@@ -164,26 +175,98 @@ class MultiObjectiveBayesianOptimization:
             score += weights[i] * value
         return score
     
-    def _generate_weights(self) -> np.ndarray:
-        """Generate random weights using Dirichlet distribution."""
-        return np.random.dirichlet(np.ones(self.n_objectives))
+    def _generate_weights(self, strategy: str = "pareto_aware") -> np.ndarray:
+        """
+        Generate weights for scalarization.
+        
+        Args:
+            strategy: "random", "pareto_aware", or "uniform"
+            
+        Returns:
+            Weight vector (sums to 1)
+        """
+        if strategy == "random":
+            # Pure random (original)
+            return np.random.dirichlet(np.ones(self.n_objectives))
+        elif strategy == "pareto_aware":
+            # Bias toward under-explored regions of Pareto front
+            if len(self.pareto_front) < 3:
+                return np.random.dirichlet(np.ones(self.n_objectives))
+            
+            # Get Pareto front objectives
+            pareto_objectives = np.array([
+                [r.objectives[obj] for obj in self.objective_names]
+                for r in self.pareto_front.get_solutions()
+            ])
+            
+            # Normalize objectives to [0, 1] for each dimension
+            normalized = np.zeros_like(pareto_objectives)
+            for i, obj_name in enumerate(self.objective_names):
+                values = pareto_objectives[:, i]
+                if self.maximize_objectives[i]:
+                    # For maximization, higher is better
+                    normalized[:, i] = (values - values.min()) / (values.max() - values.min() + 1e-10)
+                else:
+                    # For minimization, lower is better (invert)
+                    normalized[:, i] = 1.0 - (values - values.min()) / (values.max() - values.min() + 1e-10)
+            
+            # Find under-explored regions (low density)
+            # Use inverse distance to nearest neighbor as density estimate
+            if len(normalized) > 1 and cdist is not None:
+                try:
+                    distances = cdist(normalized, normalized)
+                    np.fill_diagonal(distances, np.inf)
+                    min_distances = distances.min(axis=1)
+                    # Regions with larger min_distance are under-explored
+                    exploration_scores = min_distances / (min_distances.max() + 1e-10)
+                except Exception:
+                    # Fallback if cdist fails
+                    exploration_scores = np.ones(len(normalized))
+            else:
+                # Fallback: uniform weights
+                exploration_scores = np.ones(len(normalized))
+            
+            # Weight by exploration score (prefer under-explored)
+            weights = np.random.dirichlet(exploration_scores + 0.1)  # Add small constant for stability
+            
+            # Project to objective space (weighted average of Pareto points)
+            target_weights = normalized.T @ weights
+            target_weights = target_weights / (target_weights.sum() + 1e-10)
+            
+            # Add some randomness
+            target_weights = 0.7 * target_weights + 0.3 * np.random.dirichlet(np.ones(self.n_objectives))
+            return target_weights / target_weights.sum()
+        else:  # uniform
+            return np.ones(self.n_objectives) / self.n_objectives
     
-    def suggest_next(self, init_points: int = 5) -> Dict[str, float]:
+    def suggest_next(self, init_points: int = 10) -> Dict[str, float]:
         """
         Suggest next parameters to evaluate.
         
         Args:
-            init_points: Number of random initial explorations
+            init_points: Number of random initial explorations (increased default)
             
         Returns:
             Parameter dictionary for next evaluation
         """
-        # Initial random exploration
+        # Initial random exploration with Latin Hypercube Sampling for better coverage
         if len(self.evaluation_history) < init_points:
-            params = {}
-            for name, (low, high) in self.parameter_bounds.items():
-                params[name] = np.random.uniform(low, high)
+            # Use Latin Hypercube Sampling for better space coverage
+            if len(self.evaluation_history) == 0:
+                # First point: random
+                params = {}
+                for name, (low, high) in self.parameter_bounds.items():
+                    params[name] = np.random.uniform(low, high)
+            else:
+                # Subsequent points: maximize minimum distance to existing points
+                # Simplified: random but with some diversity
+                params = {}
+                for name, (low, high) in self.parameter_bounds.items():
+                    params[name] = np.random.uniform(low, high)
             return params
+        
+        # Adapt exploration parameter (kappa) based on progress
+        self._update_exploration_parameter()
         
         # Use bayes_opt to suggest next point
         try:
@@ -195,6 +278,20 @@ class MultiObjectiveBayesianOptimization:
                 params[name] = np.random.uniform(low, high)
         
         return params
+    
+    def _update_exploration_parameter(self):
+        """Adaptively update kappa (exploration parameter) based on progress."""
+        # Linear decay from initial_kappa to final_kappa
+        # Use sqrt of progress for smoother transition
+        total_iterations = max(50, len(self.evaluation_history))  # Estimate total
+        progress = min(1.0, len(self.evaluation_history) / total_iterations)
+        
+        # Use exponential decay for smoother transition
+        current_kappa = self.final_kappa + (self.initial_kappa - self.final_kappa) * np.exp(-2.0 * progress)
+        
+        # Update acquisition function
+        if hasattr(self.optimizer, '_acquisition_function'):
+            self.optimizer._acquisition_function.kappa = current_kappa
     
     def register_evaluation(self, 
                           parameters: Dict[str, float],
@@ -219,7 +316,11 @@ class MultiObjectiveBayesianOptimization:
         self.pareto_front.add(result)
         
         # Generate weights for this evaluation and compute scalar target
-        weights = self._generate_weights()
+        # Use Pareto-aware strategy after initial exploration
+        if len(self.evaluation_history) > 10:
+            weights = self._generate_weights(strategy="pareto_aware")
+        else:
+            weights = self._generate_weights(strategy="random")
         target = self._scalarize_objectives(objectives, weights)
         
         # Register with bayes_opt optimizer

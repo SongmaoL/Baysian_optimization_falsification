@@ -288,25 +288,62 @@ def calculate_comfort_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     total_jerk = calculate_total_jerk(trace_df, dt)
     hard_events = count_hard_events(trace_df, dt, threshold=3.0)
     
-    # Score maximum jerk
-    comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']
-    max_jerk_threshold = 10.0  # Very uncomfortable
+    # Score maximum jerk (improved formula to handle edge cases)
+    comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']  # 2.0 m/s³
+    very_uncomfortable_jerk = 8.0  # Very uncomfortable threshold
+    extremely_uncomfortable_jerk = 15.0  # Extremely uncomfortable
     
-    jerk_score = np.clip((max_jerk_threshold - max_jerk) / (max_jerk_threshold - comfortable_jerk) * 100, 0, 100)
+    if max_jerk <= comfortable_jerk:
+        jerk_score = 100.0  # Very comfortable
+    elif max_jerk <= very_uncomfortable_jerk:
+        # Linear interpolation between comfortable and very uncomfortable
+        jerk_score = 100.0 - 50.0 * (max_jerk - comfortable_jerk) / (very_uncomfortable_jerk - comfortable_jerk)
+    elif max_jerk <= extremely_uncomfortable_jerk:
+        # Linear interpolation between very uncomfortable and extremely uncomfortable
+        jerk_score = 50.0 - 40.0 * (max_jerk - very_uncomfortable_jerk) / (extremely_uncomfortable_jerk - very_uncomfortable_jerk)
+    else:
+        # Extremely uncomfortable, but not zero
+        jerk_score = max(10.0, 10.0 - 5.0 * (max_jerk - extremely_uncomfortable_jerk) / 10.0)
     
-    # Score total jerk (normalized by trace length)
+    jerk_score = np.clip(jerk_score, 0.0, 100.0)
+    
+    # Score total jerk (normalized by trace length) - improved thresholds
     trace_length = len(trace_df)
-    avg_jerk_per_step = total_jerk / max(trace_length, 1)
-    comfortable_avg_jerk = 0.5
-    max_avg_jerk = 5.0
+    if trace_length == 0:
+        return 50.0  # Default neutral score for empty traces
     
-    total_jerk_score = np.clip((max_avg_jerk - avg_jerk_per_step) / (max_avg_jerk - comfortable_avg_jerk) * 100, 0, 100)
+    avg_jerk_per_step = total_jerk / trace_length
+    comfortable_avg_jerk = 0.3  # Lower threshold for comfortable
+    acceptable_avg_jerk = 1.0   # Acceptable average
+    very_uncomfortable_avg_jerk = 3.0  # Very uncomfortable
     
-    # Score hard events (normalized by trace length)
-    hard_event_rate = hard_events / max(trace_length, 1) * 100  # Events per 100 timesteps
-    max_acceptable_rate = 10.0  # 10 hard events per 100 timesteps
+    if avg_jerk_per_step <= comfortable_avg_jerk:
+        total_jerk_score = 100.0
+    elif avg_jerk_per_step <= acceptable_avg_jerk:
+        total_jerk_score = 100.0 - 30.0 * (avg_jerk_per_step - comfortable_avg_jerk) / (acceptable_avg_jerk - comfortable_avg_jerk)
+    elif avg_jerk_per_step <= very_uncomfortable_avg_jerk:
+        total_jerk_score = 70.0 - 50.0 * (avg_jerk_per_step - acceptable_avg_jerk) / (very_uncomfortable_avg_jerk - acceptable_avg_jerk)
+    else:
+        total_jerk_score = max(20.0, 20.0 - 10.0 * (avg_jerk_per_step - very_uncomfortable_avg_jerk) / 2.0)
     
-    hard_event_score = np.clip(100 - (hard_event_rate / max_acceptable_rate) * 100, 0, 100)
+    total_jerk_score = np.clip(total_jerk_score, 0.0, 100.0)
+    
+    # Score hard events (normalized by trace length) - improved formula
+    hard_event_rate = hard_events / trace_length * 100  # Events per 100 timesteps
+    comfortable_rate = 2.0   # 2 events per 100 timesteps is comfortable
+    acceptable_rate = 5.0    # 5 events per 100 timesteps is acceptable
+    uncomfortable_rate = 15.0  # 15 events per 100 timesteps is uncomfortable
+    
+    if hard_event_rate <= comfortable_rate:
+        hard_event_score = 100.0
+    elif hard_event_rate <= acceptable_rate:
+        hard_event_score = 100.0 - 30.0 * (hard_event_rate - comfortable_rate) / (acceptable_rate - comfortable_rate)
+    elif hard_event_rate <= uncomfortable_rate:
+        hard_event_score = 70.0 - 50.0 * (hard_event_rate - acceptable_rate) / (uncomfortable_rate - acceptable_rate)
+    else:
+        hard_event_score = max(20.0, 20.0 - 10.0 * (hard_event_rate - uncomfortable_rate) / 10.0)
+    
+    hard_event_score = np.clip(hard_event_score, 0.0, 100.0)
     
     # Combined comfort score (weighted average)
     comfort_score = 0.4 * jerk_score + 0.3 * total_jerk_score + 0.3 * hard_event_score
