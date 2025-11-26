@@ -24,7 +24,12 @@ if _bo_path.exists():
     sys.path.insert(0, str(_bo_path))
 
 from bayes_opt import BayesianOptimization
-from bayes_opt import acquisition
+try:
+    from bayes_opt import acquisition
+    _HAS_ACQUISITION_MODULE = True
+except ImportError:
+    from bayes_opt import UtilityFunction
+    _HAS_ACQUISITION_MODULE = False
 
 
 # ============================================================================
@@ -140,16 +145,28 @@ class MultiObjectiveBayesianOptimization:
         """Initialize the bayes_opt optimizer."""
         # Start with higher exploration (kappa=3.0) for better initial exploration
         # Will adaptively decrease over time
-        acq_func = acquisition.UpperConfidenceBound(kappa=3.0)
         
-        self.optimizer = BayesianOptimization(
-            f=None,  # No function - we register results manually
-            pbounds=self.parameter_bounds,
-            acquisition_function=acq_func,
-            random_state=self.random_state,
-            verbose=0,  # Quiet mode
-            allow_duplicate_points=True
-        )
+        if _HAS_ACQUISITION_MODULE:
+            acq_func = acquisition.UpperConfidenceBound(kappa=3.0)
+            
+            self.optimizer = BayesianOptimization(
+                f=None,  # No function - we register results manually
+                pbounds=self.parameter_bounds,
+                acquisition_function=acq_func,
+                random_state=self.random_state,
+                verbose=0,  # Quiet mode
+                allow_duplicate_points=True
+            )
+        else:
+            # Older version support
+            self.optimizer = BayesianOptimization(
+                f=None,
+                pbounds=self.parameter_bounds,
+                random_state=self.random_state,
+                verbose=0,
+                allow_duplicate_points=True
+            )
+            self._utility_function = UtilityFunction(kind="ucb", kappa=3.0, xi=0.0)
         
         # Track for adaptive exploration
         self.initial_kappa = 3.0
@@ -270,7 +287,10 @@ class MultiObjectiveBayesianOptimization:
         
         # Use bayes_opt to suggest next point
         try:
-            params = self.optimizer.suggest()
+            if _HAS_ACQUISITION_MODULE:
+                params = self.optimizer.suggest()
+            else:
+                params = self.optimizer.suggest(self._utility_function)
         except Exception:
             # Fallback to random if suggestion fails
             params = {}
@@ -290,8 +310,12 @@ class MultiObjectiveBayesianOptimization:
         current_kappa = self.final_kappa + (self.initial_kappa - self.final_kappa) * np.exp(-2.0 * progress)
         
         # Update acquisition function
-        if hasattr(self.optimizer, '_acquisition_function'):
-            self.optimizer._acquisition_function.kappa = current_kappa
+        if _HAS_ACQUISITION_MODULE:
+            if hasattr(self.optimizer, '_acquisition_function'):
+                self.optimizer._acquisition_function.kappa = current_kappa
+        else:
+            if hasattr(self, '_utility_function'):
+                self._utility_function.kappa = current_kappa
     
     def register_evaluation(self, 
                           parameters: Dict[str, float],
