@@ -156,6 +156,11 @@ def main():
         initial_lead_state = scenario_data['lead']
         ado_actions = scenario_data['ado_actions']
 
+        # Set weather if available
+        weather_params = scenario_data.get('weather')
+        if weather_params:
+            sim.set_weather(weather_params)
+
         controller = Controller(
             distance_threshold=CONFIG["distance_threshold"],
         )

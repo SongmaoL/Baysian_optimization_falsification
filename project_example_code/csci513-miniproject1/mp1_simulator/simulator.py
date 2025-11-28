@@ -90,8 +90,8 @@ class Simulator:
         self.world = self.client.load_world(self.config["town"])
         print("Carla server connected!")
 
-        # Set weather
-        self.world.set_weather(carla.WeatherParameters.ClearNoon)
+        # Set weather (default to clear noon, will be updated if scenario provides weather)
+        # self.world.set_weather(carla.WeatherParameters.ClearNoon)
 
         # Create the ego vehicle blueprint
         self.ego_bp = self._create_vehicle_blueprint(
@@ -135,6 +135,20 @@ class Simulator:
         # Initialize the renderer
         self._init_renderer()
 
+
+    def set_weather(self, weather_params):
+        """Set the weather simulation parameters."""
+        weather = carla.WeatherParameters(
+            cloudiness=weather_params.get('cloudiness', 0.0),
+            precipitation=weather_params.get('precipitation', 0.0),
+            precipitation_deposits=weather_params.get('precipitation_deposits', 0.0),
+            wind_intensity=weather_params.get('wind_intensity', 0.0),
+            sun_altitude_angle=weather_params.get('sun_altitude_angle', 0.0),
+            fog_density=weather_params.get('fog_density', 0.0),
+            fog_distance=weather_params.get('fog_distance', 0.0),
+            wetness=weather_params.get('wetness', 0.0),
+        )
+        self.world.set_weather(weather)
 
     def set_spawn_points(self, initial_ego_state, initial_lead_state):
         initial_ego_state = initial_ego_state
