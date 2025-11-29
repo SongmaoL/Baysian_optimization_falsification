@@ -221,7 +221,8 @@ class FalsificationOrchestrator:
         
         # 3. Run simulation
         print("\n[3/5] Running CARLA simulation...")
-        log_path = self.simulator.run_simulation(scenario_path)
+        # Ensure we pass the absolute path to the scenario file
+        log_path = self.simulator.run_simulation(scenario_path.resolve())
         
         if log_path is None:
             print("ERROR: Simulation failed!")
