@@ -9,7 +9,7 @@ import numpy as np
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any, Union
 from dataclasses import dataclass, asdict
 
 try:
@@ -87,12 +87,27 @@ class ParetoFront:
 
 
 # ============================================================================
+# OPTIMIZATION STRATEGIES
+# ============================================================================
+
+class OptimizationStrategy:
+    """Base class for different optimization strategies."""
+    MULTI_OBJECTIVE = "multi_objective"
+    SINGLE_OBJECTIVE_SAFETY = "single_objective_safety"
+    RANDOM_SEARCH = "random_search"
+
+
+# ============================================================================
 # MULTI-OBJECTIVE BAYESIAN OPTIMIZATION (Using bayes_opt library)
 # ============================================================================
 
 class MultiObjectiveBayesianOptimization:
     """
     Multi-objective BO using bayes_opt library with weighted scalarization.
+    
+    Also supports baselines:
+    - Single-Objective BO (optimizing only safety)
+    - Random Search
     
     Strategy: Each iteration uses random weights to explore different
     regions of the Pareto front. The bayes_opt library handles all the
@@ -103,6 +118,7 @@ class MultiObjectiveBayesianOptimization:
                  parameter_bounds: Dict[str, Tuple[float, float]],
                  objective_names: List[str] = None,
                  maximize_objectives: List[bool] = None,
+                 strategy: str = OptimizationStrategy.MULTI_OBJECTIVE,
                  random_state: int = 42):
         """
         Initialize multi-objective BO.
@@ -111,10 +127,14 @@ class MultiObjectiveBayesianOptimization:
             parameter_bounds: Dict mapping parameter names to (min, max) tuples
             objective_names: Names of objectives (default: ['safety', 'plausibility', 'comfort'])
             maximize_objectives: Which objectives to maximize (default: [False, True, False])
+            strategy: Optimization strategy (default: "multi_objective")
             random_state: Random seed
         """
         self.parameter_bounds = parameter_bounds
         self.parameter_names = list(parameter_bounds.keys())
+        
+        # Strategy
+        self.strategy = strategy
         
         # Objectives
         if objective_names is None:
@@ -143,6 +163,11 @@ class MultiObjectiveBayesianOptimization:
     
     def _init_optimizer(self):
         """Initialize the bayes_opt optimizer."""
+        # Only needed for BO strategies
+        if self.strategy == OptimizationStrategy.RANDOM_SEARCH:
+            self.optimizer = None
+            return
+
         # Start with higher exploration (kappa=3.0) for better initial exploration
         # Will adaptively decrease over time
         
@@ -183,6 +208,27 @@ class MultiObjectiveBayesianOptimization:
         Returns:
             Scalar value (higher is better for bayes_opt)
         """
+        if self.strategy == OptimizationStrategy.SINGLE_OBJECTIVE_SAFETY:
+            # For single objective safety, we just return the safety score
+            # Negate because we want to minimize safety score (find crashes), but bayes_opt maximizes
+            # Or if maximize_objectives[0] is False (default), then safety is minimized.
+            # Let's check config.
+            
+            # Find safety index
+            try:
+                safety_idx = self.objective_names.index('safety')
+                is_maximize = self.maximize_objectives[safety_idx]
+            except ValueError:
+                # Default if safety not found
+                return 0.0
+                
+            val = objectives['safety']
+            # bayes_opt maximizes. If we want to minimize safety (find crashes, so low safety score),
+            # we should return -val.
+            if not is_maximize:
+                return -val
+            return val
+
         score = 0.0
         for i, obj_name in enumerate(self.objective_names):
             value = objectives[obj_name]
@@ -202,6 +248,15 @@ class MultiObjectiveBayesianOptimization:
         Returns:
             Weight vector (sums to 1)
         """
+        if self.strategy == OptimizationStrategy.SINGLE_OBJECTIVE_SAFETY:
+            # Weights don't matter for single objective in scalarization, but returned for consistency
+            w = np.zeros(self.n_objectives)
+            try:
+                w[self.objective_names.index('safety')] = 1.0
+            except ValueError:
+                pass
+            return w
+
         if strategy == "random":
             # Pure random (original)
             return np.random.dirichlet(np.ones(self.n_objectives))
@@ -266,6 +321,14 @@ class MultiObjectiveBayesianOptimization:
         Returns:
             Parameter dictionary for next evaluation
         """
+        # Random Search Strategy
+        if self.strategy == OptimizationStrategy.RANDOM_SEARCH:
+            params = {}
+            for name, (low, high) in self.parameter_bounds.items():
+                params[name] = np.random.uniform(low, high)
+            return params
+
+        # BO Strategies (Multi or Single)
         # Initial random exploration with Latin Hypercube Sampling for better coverage
         if len(self.evaluation_history) < init_points:
             # Use Latin Hypercube Sampling for better space coverage
@@ -301,6 +364,9 @@ class MultiObjectiveBayesianOptimization:
     
     def _update_exploration_parameter(self):
         """Adaptively update kappa (exploration parameter) based on progress."""
+        if self.strategy == OptimizationStrategy.RANDOM_SEARCH:
+            return
+
         # Linear decay from initial_kappa to final_kappa
         # Use sqrt of progress for smoother transition
         total_iterations = max(50, len(self.evaluation_history))  # Estimate total
@@ -339,12 +405,22 @@ class MultiObjectiveBayesianOptimization:
         self.evaluation_history.append(result)
         self.pareto_front.add(result)
         
+        # Random search doesn't need registration with an optimizer
+        if self.strategy == OptimizationStrategy.RANDOM_SEARCH:
+            self.iteration += 1
+            return
+
         # Generate weights for this evaluation and compute scalar target
-        # Use Pareto-aware strategy after initial exploration
-        if len(self.evaluation_history) > 10:
-            weights = self._generate_weights(strategy="pareto_aware")
+        # Use Pareto-aware strategy after initial exploration (only for MOBO)
+        if self.strategy == OptimizationStrategy.MULTI_OBJECTIVE:
+            if len(self.evaluation_history) > 10:
+                weights = self._generate_weights(strategy="pareto_aware")
+            else:
+                weights = self._generate_weights(strategy="random")
         else:
-            weights = self._generate_weights(strategy="random")
+            # Single objective uses fixed weights (only safety matters)
+            weights = self._generate_weights()
+            
         target = self._scalarize_objectives(objectives, weights)
         
         # Register with bayes_opt optimizer
@@ -378,6 +454,7 @@ class MultiObjectiveBayesianOptimization:
             'evaluation_history': [r.to_dict() for r in self.evaluation_history],
             'iteration': self.iteration,
             'random_state': self.random_state,
+            'strategy': self.strategy,
         }
         
         filepath = Path(filepath)
@@ -397,6 +474,7 @@ class MultiObjectiveBayesianOptimization:
         self.maximize_objectives = state['maximize_objectives']
         self.iteration = state['iteration']
         self.random_state = state['random_state']
+        self.strategy = state.get('strategy', OptimizationStrategy.MULTI_OBJECTIVE)
         
         # Reconstruct evaluation history
         self.evaluation_history = [EvaluationResult.from_dict(r) for r in state['evaluation_history']]
@@ -408,13 +486,22 @@ class MultiObjectiveBayesianOptimization:
         
         # Re-register all points with optimizer
         self._init_optimizer()
-        for result in self.evaluation_history:
-            weights = self._generate_weights()
-            target = self._scalarize_objectives(result.objectives, weights)
-            try:
-                self.optimizer.register(params=result.parameters, target=target)
-            except Exception:
-                pass
+        
+        # If random search, we don't need to register points
+        if self.strategy == OptimizationStrategy.RANDOM_SEARCH:
+            pass
+        else:
+            for result in self.evaluation_history:
+                if self.strategy == OptimizationStrategy.MULTI_OBJECTIVE:
+                    weights = self._generate_weights() # This might differ from history, but OK for initialization
+                else:
+                     weights = self._generate_weights()
+
+                target = self._scalarize_objectives(result.objectives, weights)
+                try:
+                    self.optimizer.register(params=result.parameters, target=target)
+                except Exception:
+                    pass
         
         print(f"Loaded {len(self.evaluation_history)} evaluations from {filepath}")
         print(f"  Pareto front size: {len(self.pareto_front)}")
@@ -422,7 +509,7 @@ class MultiObjectiveBayesianOptimization:
     def print_summary(self):
         """Print summary of optimization progress."""
         print("=" * 70)
-        print("MULTI-OBJECTIVE BAYESIAN OPTIMIZATION SUMMARY")
+        print(f"OPTIMIZATION SUMMARY ({self.strategy})")
         print("=" * 70)
         print(f"Iterations: {self.iteration}")
         print(f"Evaluations: {len(self.evaluation_history)}")

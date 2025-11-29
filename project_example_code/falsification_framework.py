@@ -26,7 +26,7 @@ sys.path.insert(0, str(project_root))
 
 from config.search_space import get_parameter_bounds, validate_parameters
 from scenario_generator import generate_scenario, save_scenario_json
-from multi_objective_bo import MultiObjectiveBayesianOptimization
+from multi_objective_bo import MultiObjectiveBayesianOptimization, OptimizationStrategy
 from metrics.objective_functions import evaluate_trace_file
 
 
@@ -137,6 +137,7 @@ class FalsificationOrchestrator:
                  carla_project_dir: Path,
                  output_dir: Path,
                  render: bool = False,
+                 strategy: str = "multi_objective",
                  random_state: int = 42):
         """
         Initialize falsification orchestrator.
@@ -145,6 +146,7 @@ class FalsificationOrchestrator:
             carla_project_dir: Path to csci513-miniproject1 directory
             output_dir: Directory to save all outputs
             render: Whether to render simulations
+            strategy: Optimization strategy ("multi_objective", "single_objective_safety", "random_search")
             random_state: Random seed
         """
         self.carla_project_dir = Path(carla_project_dir)
@@ -163,6 +165,7 @@ class FalsificationOrchestrator:
         # Initialize components
         self.optimizer = MultiObjectiveBayesianOptimization(
             parameter_bounds=get_parameter_bounds(),
+            strategy=strategy,
             random_state=random_state
         )
         
@@ -390,6 +393,14 @@ def parse_args():
     )
     
     parser.add_argument(
+        "--strategy",
+        type=str,
+        choices=["multi_objective", "single_objective_safety", "random_search"],
+        default="multi_objective",
+        help="Optimization strategy: multi_objective, single_objective_safety, or random_search"
+    )
+    
+    parser.add_argument(
         "--render",
         action="store_true",
         help="Render simulation visualization"
@@ -420,6 +431,7 @@ def main():
         carla_project_dir=args.carla_project,
         output_dir=args.output_dir,
         render=args.render,
+        strategy=args.strategy,
         random_state=args.random_state
     )
     
