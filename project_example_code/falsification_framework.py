@@ -76,8 +76,8 @@ class CARLASimulationRunner:
         cmd = [
             sys.executable, "-m", "mp1_simulator",
             str(scenario_path),
-            "--log-dir", str(self.log_dir),
-            "--vid-dir", str(self.vid_dir),
+            "--log-dir", str(self.log_dir.resolve()),
+            "--vid-dir", str(self.vid_dir.resolve()),
         ]
         
         if self.render:
