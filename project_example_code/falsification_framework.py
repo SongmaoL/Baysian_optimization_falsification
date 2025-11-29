@@ -111,6 +111,8 @@ class CARLASimulationRunner:
                     log_file = log_files[0]
                 else:
                     print("No log file found after simulation")
+                    print("STDOUT:", result.stdout)
+                    print("STDERR:", result.stderr)
                     return None
             
             print(f"  Log saved to: {log_file}")
