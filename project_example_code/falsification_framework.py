@@ -100,11 +100,23 @@ class CARLASimulationRunner:
                 return None
             
             # Find the generated log file
-            # Simulation creates logs with scenario name
+            # Simulation creates logs with scenario name, often prepended with 'episode-'
             scenario_name = scenario_path.stem
-            log_file = self.log_dir / f"{scenario_name}.csv"
             
-            if not log_file.exists():
+            # Check for both possible filenames
+            possible_names = [
+                f"episode-{scenario_name}.csv",
+                f"{scenario_name}.csv"
+            ]
+            
+            log_file = None
+            for name in possible_names:
+                candidate = self.log_dir / name
+                if candidate.exists():
+                    log_file = candidate
+                    break
+            
+            if log_file is None:
                 # Try to find most recent log file
                 log_files = sorted(self.log_dir.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if log_files:
