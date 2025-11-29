@@ -1,0 +1,8 @@
+==========================================
+SLURM_JOB_ID = 5028252
+SLURM_JOB_NODELIST = b18-17
+TMPDIR = /tmp/SLURM_5028252
+==========================================
+bash: /home/carla/CarlaUE4.sh: No such file or directory
+ERROR: CARLA project directory not found: csci513-miniproject1
+Please specify the correct path with --carla-project

@@ -1,0 +1,14 @@
+==========================================
+SLURM_JOB_ID = 5028257
+SLURM_JOB_NODELIST = b18-17
+TMPDIR = /tmp/SLURM_5028257
+==========================================
+/var/spool/slurm/d/job5028257/slurm_script: line 18: cd: /path/to/your/Baysian_optimization_falsification: No such file or directory
+Starting CARLA server...
+chmod: changing permissions of '/home/carla/CarlaUE4/Binaries/Linux/CarlaUE4-Linux-Shipping': Read-only file system
+4.26.2-0+++UE4+Release-4.26 522 0
+Disabling core dumps.
+Running Falsification...
+/bin/bash: line 19: python: command not found
+INFO:    Terminating squashfuse_ll after timeout
+INFO:    Timeouts can be caused by a running background process
