@@ -235,24 +235,11 @@ class FalsificationOrchestrator:
         
         # 3. Run simulation
         print("\n[3/5] Running CARLA simulation...")
-        
-        # Retry loop for simulation flakes
-        max_retries = 3
-        log_path = None
-        
-        for retry in range(max_retries):
-            if retry > 0:
-                print(f"\nRetry {retry}/{max_retries-1} after failure...")
-                time.sleep(5)  # Wait for CARLA to recover
-                
-            # Ensure we pass the absolute path to the scenario file
-            log_path = self.simulator.run_simulation(scenario_path.resolve())
-            
-            if log_path is not None:
-                break
+        # Ensure we pass the absolute path to the scenario file
+        log_path = self.simulator.run_simulation(scenario_path.resolve())
         
         if log_path is None:
-            print(f"ERROR: Simulation failed after {max_retries} attempts!")
+            print("ERROR: Simulation failed!")
             return False
         
         # 4. Evaluate objectives
