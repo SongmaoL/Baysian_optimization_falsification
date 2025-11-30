@@ -189,7 +189,7 @@ def calculate_safety_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     
     # Normalize TTC (0 at critical, 100 at safe)
     critical_ttc = PLAUSIBILITY_CONSTRAINTS['critical_ttc']
-    safe_ttc = 10.0  # 10 seconds is very safe
+    safe_ttc = PLAUSIBILITY_CONSTRAINTS['safe_ttc']
     if min_ttc == float('inf'):
         ttc_score = 100.0
     else:
@@ -197,7 +197,7 @@ def calculate_safety_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     
     # Normalize distance (0 at critical, 100 at safe)
     critical_distance = PLAUSIBILITY_CONSTRAINTS['min_safe_distance']
-    safe_distance = 30.0  # 30 meters is very safe
+    safe_distance = PLAUSIBILITY_CONSTRAINTS['safe_distance']
     distance_score = np.clip((min_distance - critical_distance) / (safe_distance - critical_distance) * 100, 0, 100)
     
     # Combined safety score (weighted average)
@@ -288,22 +288,27 @@ def calculate_comfort_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     total_jerk = calculate_total_jerk(trace_df, dt)
     hard_events = count_hard_events(trace_df, dt, threshold=3.0)
     
-    # Score maximum jerk (improved formula to handle edge cases)
+    # Score maximum jerk (adjusted for realistic emergency braking)
+    # Real emergency braking: 20-50 m/s³, so we need wider thresholds
     comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']  # 2.0 m/s³
-    very_uncomfortable_jerk = 8.0  # Very uncomfortable threshold
-    extremely_uncomfortable_jerk = 15.0  # Extremely uncomfortable
+    noticeable_jerk = PLAUSIBILITY_CONSTRAINTS['noticeable_jerk']        # 5.0 m/s³
+    uncomfortable_jerk = 15.0   # Uncomfortable (hard braking)
+    emergency_jerk = PLAUSIBILITY_CONSTRAINTS['max_jerk']                # 25.0 m/s³
     
     if max_jerk <= comfortable_jerk:
         jerk_score = 100.0  # Very comfortable
-    elif max_jerk <= very_uncomfortable_jerk:
-        # Linear interpolation between comfortable and very uncomfortable
-        jerk_score = 100.0 - 50.0 * (max_jerk - comfortable_jerk) / (very_uncomfortable_jerk - comfortable_jerk)
-    elif max_jerk <= extremely_uncomfortable_jerk:
-        # Linear interpolation between very uncomfortable and extremely uncomfortable
-        jerk_score = 50.0 - 40.0 * (max_jerk - very_uncomfortable_jerk) / (extremely_uncomfortable_jerk - very_uncomfortable_jerk)
+    elif max_jerk <= noticeable_jerk:
+        # Linear: 100 -> 80
+        jerk_score = 100.0 - 20.0 * (max_jerk - comfortable_jerk) / (noticeable_jerk - comfortable_jerk)
+    elif max_jerk <= uncomfortable_jerk:
+        # Linear: 80 -> 50
+        jerk_score = 80.0 - 30.0 * (max_jerk - noticeable_jerk) / (uncomfortable_jerk - noticeable_jerk)
+    elif max_jerk <= emergency_jerk:
+        # Linear: 50 -> 20 (emergency braking is uncomfortable but realistic)
+        jerk_score = 50.0 - 30.0 * (max_jerk - uncomfortable_jerk) / (emergency_jerk - uncomfortable_jerk)
     else:
-        # Extremely uncomfortable, but not zero
-        jerk_score = max(10.0, 10.0 - 5.0 * (max_jerk - extremely_uncomfortable_jerk) / 10.0)
+        # Beyond emergency: 20 -> 0
+        jerk_score = max(0.0, 20.0 - 20.0 * (max_jerk - emergency_jerk) / 25.0)
     
     jerk_score = np.clip(jerk_score, 0.0, 100.0)
     

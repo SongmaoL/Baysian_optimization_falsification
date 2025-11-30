@@ -115,26 +115,26 @@ PARAMETER_DESCRIPTIONS = {
 # Physical constraints for plausibility checking
 PLAUSIBILITY_CONSTRAINTS = {
     # Maximum longitudinal acceleration (m/s²)
-    # Passenger cars: typically < 10 m/s² (1g)
-    # Emergency braking: < 20 m/s² (2g) - PHYSICAL LIMIT
-    "max_longitudinal_accel": 20.0,  # 2g
-    "comfortable_max_accel": 10.0,   # 1g
+    # Passenger cars on dry pavement: ~10 m/s² (tire grip limit)
+    # Comfortable braking: 3-5 m/s²
+    "max_longitudinal_accel": 12.0,  # Realistic max (tire grip + ABS peaks)
+    "comfortable_max_accel": 5.0,    # Comfortable braking threshold
     
     # Maximum jerk (m/s³)
     # Comfortable: < 2 m/s³
-    # Acceptable: < 5 m/s³
-    "max_jerk": 10.0,
+    # Normal driving: < 5 m/s³
+    # Emergency braking: 20-50 m/s³ (realistic for real cars)
+    "max_jerk": 25.0,  # Allow realistic emergency braking
     "comfortable_max_jerk": 2.0,
+    "noticeable_jerk": 5.0,  # Noticeable but acceptable
     
-    # Maximum lateral acceleration (m/s²)
-    "max_lateral_accel": 10.0,  # 1g
-    "comfortable_max_lateral_accel": 5.0,  # 0.5g
-    
-    # Minimum time-to-collision (seconds)
+    # Time-to-collision thresholds (seconds)
     "critical_ttc": 2.0,  # Below this is critical
+    "safe_ttc": 10.0,     # Above this is very safe
     
-    # Minimum safe distance (meters)
-    "min_safe_distance": 4.0,
+    # Distance thresholds (meters)
+    "min_safe_distance": 4.0,  # Critical distance
+    "safe_distance": 30.0,     # Very safe distance
 }
 
 # ============================================================================
