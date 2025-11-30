@@ -86,10 +86,12 @@ class Controller:
         else:
             self.cruise_time = 0.0
 
+        # Calculate speed error (needed for both CRUISING and FOLLOWING modes)
+        e = v_set - v
+
         # --- base control laws ---
         if mode == Mode.CRUISING:
             # Critically‑damped acceleration toward set speed
-            e = v_set - v
             
             # Smooth mode transition: initialize prev_e on mode switch to avoid edot spike
             if self.last_mode != Mode.CRUISING:
