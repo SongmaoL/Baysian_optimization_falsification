@@ -127,9 +127,10 @@ def generate_lead_vehicle_actions(params: Dict[str, float],
     brake_duration = int(params.get('lead_brake_duration', 10))
     
     # Smoothing parameters - prevents unrealistic step functions
-    # Alpha=0.1 gives smooth transitions (~1 second to reach target)
+    # Alpha=0.05 gives smoother transitions (~2 seconds to reach target)
     # This keeps both acceleration AND jerk within realistic bounds
-    SMOOTHING_ALPHA = 0.1  # Lower = smoother (was 0.3, caused high jerk)
+    # Reduced from 0.1 to improve plausibility (reduce jerk)
+    SMOOTHING_ALPHA = 0.05  # Lower = smoother (reduced to improve plausibility)
     
     actions = []
     time = 0.0

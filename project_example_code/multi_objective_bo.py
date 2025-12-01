@@ -229,6 +229,14 @@ class MultiObjectiveBayesianOptimization:
                 return -val
             return val
 
+        # Apply plausibility constraint: heavily penalize scenarios with plausibility=0
+        # This encourages the optimizer to find scenarios that are both dangerous AND realistic
+        plausibility_penalty = 0.0
+        if 'plausibility' in objectives and objectives['plausibility'] == 0.0:
+            # Heavy penalty for implausible scenarios (reduces score by 50 points)
+            # This makes implausible scenarios much less attractive to the optimizer
+            plausibility_penalty = -50.0
+
         score = 0.0
         for i, obj_name in enumerate(self.objective_names):
             value = objectives[obj_name]
@@ -236,6 +244,9 @@ class MultiObjectiveBayesianOptimization:
             if not self.maximize_objectives[i]:
                 value = -value
             score += weights[i] * value
+        
+        # Apply plausibility penalty
+        score += plausibility_penalty
         return score
     
     def _generate_weights(self, strategy: str = "pareto_aware") -> np.ndarray:
@@ -258,8 +269,18 @@ class MultiObjectiveBayesianOptimization:
             return w
 
         if strategy == "random":
-            # Pure random (original)
-            return np.random.dirichlet(np.ones(self.n_objectives))
+            # Bias weights toward plausibility to encourage realistic scenarios
+            # Use Dirichlet with higher concentration for plausibility
+            # This makes plausibility more likely to be weighted higher
+            try:
+                plaus_idx = self.objective_names.index('plausibility')
+                # Create concentration parameters: higher for plausibility
+                concentrations = np.ones(self.n_objectives)
+                concentrations[plaus_idx] = 2.0  # Bias toward plausibility
+                return np.random.dirichlet(concentrations)
+            except ValueError:
+                # Fallback if plausibility not found
+                return np.random.dirichlet(np.ones(self.n_objectives))
         elif strategy == "pareto_aware":
             # Bias toward under-explored regions of Pareto front
             if len(self.pareto_front) < 3:

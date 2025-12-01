@@ -57,10 +57,12 @@ LEAD_VEHICLE_BOUNDS = {
     "lead_brake_probability": (0.0, 0.3),
     
     # Brake intensity when braking (0-1)
-    "lead_brake_intensity": (0.1, 0.8),
+    # Reduced max from 0.8 to 0.6 to prevent excessive braking that causes high jerk
+    "lead_brake_intensity": (0.1, 0.6),
     
     # Brake duration (timesteps)
-    "lead_brake_duration": (5, 30),  # 0.5-3 seconds at dt=0.1
+    # Increased min from 5 to 10 to allow smoother braking transitions
+    "lead_brake_duration": (10, 30),  # 1-3 seconds at dt=0.1
 }
 
 # ============================================================================
@@ -69,7 +71,9 @@ LEAD_VEHICLE_BOUNDS = {
 
 INITIAL_CONDITION_BOUNDS = {
     # Initial distance between ego and lead vehicle (meters)
-    "initial_distance": (15.0, 80.0),
+    # Narrowed from (15.0, 80.0) to (25.0, 60.0) to avoid extreme close distances
+    # that force aggressive controller reactions (which break plausibility)
+    "initial_distance": (25.0, 60.0),
     
     # Initial ego velocity (m/s)
     "initial_ego_velocity": (5.0, 20.0),

@@ -249,6 +249,10 @@ class FalsificationOrchestrator:
             print(f"  Safety:      {objectives['safety']:.2f}")
             print(f"  Plausibility: {objectives['plausibility']:.2f}")
             print(f"  Comfort:     {objectives['comfort']:.2f}")
+            
+            # Warn if plausibility is 0 (scenario violates physics)
+            if objectives['plausibility'] == 0.0:
+                print("  WARNING: Plausibility=0 (scenario violates physical constraints)")
         except Exception as e:
             print(f"ERROR: Failed to evaluate objectives: {e}")
             return False
