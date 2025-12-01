@@ -81,7 +81,15 @@ def calculate_maximum_jerk(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     # Calculate jerk (derivative of acceleration)
     if len(accelerations) > 1:
         jerks = np.diff(accelerations) / dt
-        return np.max(np.abs(jerks)) if len(jerks) > 0 else 0.0
+        
+        # Filter out artifacts at low speeds (< 2.0 m/s)
+        # Instant stopping in sim causes infinite jerk/accel spikes
+        # Use speed at start of interval (aligned with jerk array)
+        speeds = velocities[:-2] 
+        valid_mask = speeds > 2.0
+        
+        if np.any(valid_mask):
+            return np.max(np.abs(jerks[valid_mask]))
     
     return 0.0
 
@@ -99,7 +107,16 @@ def calculate_maximum_acceleration(trace_df: pd.DataFrame, dt: float = 0.1) -> f
     """
     velocities = trace_df['ego_velocity'].values
     accelerations = np.diff(velocities) / dt
-    return np.max(np.abs(accelerations)) if len(accelerations) > 0 else 0.0
+    
+    # Filter out artifacts at low speeds (< 2.0 m/s)
+    # Instant stopping in sim causes infinite accel spikes
+    speeds = velocities[:-1]
+    valid_mask = speeds > 2.0
+    
+    if np.any(valid_mask):
+        return np.max(np.abs(accelerations[valid_mask]))
+        
+    return 0.0
 
 
 def calculate_total_jerk(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
