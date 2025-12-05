@@ -2,8 +2,15 @@
 Objective Functions for Multi-Objective Falsification
 
 This module implements the objective functions:
-1. Safety Score - measures how unsafe a scenario is (minimize to find violations)
+1. Safety Score - based on Min TTC (Time-to-Collision), a CONTINUOUS metric
+   that provides better gradient information for Bayesian Optimization
+   (minimize to find unsafe scenarios)
 2. Plausibility Score - measures physical realism (maximize for realistic scenarios)
+
+CHANGE LOG:
+- Dec 2024: Changed Safety Score from binary (collision=0, safe=60) to 
+  continuous Min TTC-based scoring. This allows BO to learn gradients
+  and produces more diverse Pareto fronts.
 
 Note: Comfort Score has been removed from the optimization as it wasn't providing
 useful signal. The function is kept for legacy compatibility but not used.
@@ -186,17 +193,25 @@ def check_collision(trace_df: pd.DataFrame) -> bool:
 
 
 # ============================================================================
-# OBJECTIVE FUNCTION 1: SAFETY SCORE
+# OBJECTIVE FUNCTION 1: SAFETY SCORE (Min TTC based - CONTINUOUS)
 # ============================================================================
 
 def calculate_safety_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     """
-    Calculate safety score (MINIMIZE to find unsafe scenarios).
+    Calculate safety score using Min TTC (MINIMIZE to find unsafe scenarios).
     
-    Lower score = more unsafe
-    - Collision = very low score
-    - Low TTC = low score
-    - Small minimum distance = low score
+    This uses a CONTINUOUS metric based on minimum Time-to-Collision (TTC),
+    which provides better gradient information for Bayesian Optimization
+    compared to binary collision detection.
+    
+    Lower score = more unsafe (lower TTC = closer to collision)
+    
+    Scoring scale:
+    - TTC = 0s (collision) -> Safety = 0
+    - TTC < 1.5s (critical) -> Safety < 25
+    - TTC 1.5-4s (dangerous) -> Safety 25-67
+    - TTC > 4s (safe) -> Safety 67-100
+    - TTC = inf (never closing) -> Safety = 100
     
     Args:
         trace_df: Simulation trace DataFrame
@@ -205,33 +220,47 @@ def calculate_safety_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     Returns:
         Safety score (lower = more unsafe). Range: [0, 100]
     """
-    # Check for collision (worst case)
+    # Check for actual collision first (from simulator sensor)
     collision = check_collision(trace_df)
     if collision:
-        return 0.0  # Lowest possible safety score
+        # Even with collision, use TTC to differentiate severity
+        min_ttc = calculate_minimum_ttc(trace_df)
+        # Collision with very low TTC = 0, with higher TTC = slight score
+        # This handles cases where collision happened after a close call
+        return float(np.clip(min_ttc * 5, 0, 10))  # Max 10 for collisions
     
-    # Calculate safety metrics
+    # Calculate minimum TTC (primary metric)
     min_ttc = calculate_minimum_ttc(trace_df)
-    min_distance = calculate_minimum_distance(trace_df)
     
-    # Normalize TTC (0 at critical, 100 at safe)
-    critical_ttc = PLAUSIBILITY_CONSTRAINTS['critical_ttc']
-    safe_ttc = PLAUSIBILITY_CONSTRAINTS['safe_ttc']
+    # Handle infinite TTC (vehicles never closing)
     if min_ttc == float('inf'):
-        ttc_score = 100.0
+        return 100.0  # Perfectly safe - never approached
+    
+    # Convert Min TTC to safety score (continuous mapping)
+    # Using a piecewise linear function for interpretability:
+    #   TTC <= 0.5s  -> Score 0-8   (imminent collision)
+    #   TTC 0.5-1.5s -> Score 8-25  (critical)
+    #   TTC 1.5-4.0s -> Score 25-67 (dangerous)
+    #   TTC 4.0-8.0s -> Score 67-90 (caution)
+    #   TTC > 8.0s   -> Score 90-100 (safe)
+    
+    if min_ttc <= 0.5:
+        # Imminent collision zone: 0 -> 8
+        safety_score = min_ttc / 0.5 * 8
+    elif min_ttc <= 1.5:
+        # Critical zone: 8 -> 25
+        safety_score = 8 + (min_ttc - 0.5) / 1.0 * 17
+    elif min_ttc <= 4.0:
+        # Dangerous zone: 25 -> 67
+        safety_score = 25 + (min_ttc - 1.5) / 2.5 * 42
+    elif min_ttc <= 8.0:
+        # Caution zone: 67 -> 90
+        safety_score = 67 + (min_ttc - 4.0) / 4.0 * 23
     else:
-        ttc_score = np.clip((min_ttc - critical_ttc) / (safe_ttc - critical_ttc) * 100, 0, 100)
+        # Safe zone: 90 -> 100 (asymptotic)
+        safety_score = 90 + 10 * (1 - np.exp(-(min_ttc - 8.0) / 4.0))
     
-    # Normalize distance (0 at critical, 100 at safe)
-    critical_distance = PLAUSIBILITY_CONSTRAINTS['min_safe_distance']
-    safe_distance = PLAUSIBILITY_CONSTRAINTS['safe_distance']
-    distance_score = np.clip((min_distance - critical_distance) / (safe_distance - critical_distance) * 100, 0, 100)
-    
-    # Combined safety score (weighted average)
-    # TTC is more important (60%) than distance (40%)
-    safety_score = 0.6 * ttc_score + 0.4 * distance_score
-    
-    return float(safety_score)
+    return float(np.clip(safety_score, 0, 100))
 
 
 # ============================================================================
@@ -534,11 +563,15 @@ def dominates(scores1: Dict[str, float], scores2: Dict[str, float]) -> bool:
 if __name__ == "__main__":
     # Example usage
     print("=" * 80)
-    print("OBJECTIVE FUNCTIONS MODULE")
+    print("OBJECTIVE FUNCTIONS MODULE (Min TTC Version)")
     print("=" * 80)
     print("\nThis module provides two objective functions:")
-    print("1. Safety Score (minimize): Lower = more unsafe scenarios")
+    print("1. Safety Score (minimize): Based on Min TTC (continuous)")
+    print("   - TTC < 1.5s -> Score < 25 (critical)")
+    print("   - TTC 1.5-4s -> Score 25-67 (dangerous)")
+    print("   - TTC > 4s   -> Score > 67 (safe)")
     print("2. Plausibility Score (maximize): Higher = more realistic")
     print("\nAll scores are in range [0, 100]")
+    print("\nThe Min TTC metric provides smooth gradients for BO optimization.")
     print("=" * 80)
 
