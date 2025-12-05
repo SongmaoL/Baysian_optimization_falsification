@@ -1,10 +1,12 @@
 """
 Objective Functions for Multi-Objective Falsification
 
-This module implements the three objective functions:
+This module implements the objective functions:
 1. Safety Score - measures how unsafe a scenario is (minimize to find violations)
 2. Plausibility Score - measures physical realism (maximize for realistic scenarios)
-3. Comfort Score - measures passenger discomfort (minimize to find uncomfortable scenarios)
+
+Note: Comfort Score has been removed from the optimization as it wasn't providing
+useful signal. The function is kept for legacy compatibility but not used.
 """
 
 import numpy as np
@@ -163,14 +165,22 @@ def count_hard_events(trace_df: pd.DataFrame, dt: float = 0.1, threshold: float 
 
 def check_collision(trace_df: pd.DataFrame) -> bool:
     """
-    Check if a collision occurred (distance <= 0 or very close).
+    Check if a collision occurred.
+    
+    Uses the 'collided' column if available (from simulator's collision sensor),
+    otherwise falls back to distance heuristic.
     
     Args:
-        trace_df: DataFrame with column: distance_to_lead
+        trace_df: DataFrame with columns: distance_to_lead, optionally 'collided'
         
     Returns:
         True if collision detected
     """
+    # Prefer actual collision flag from simulator (Fix #4)
+    if 'collided' in trace_df.columns:
+        return trace_df['collided'].max() > 0  # Any collision in trace
+    
+    # Fallback: distance-based heuristic
     min_distance = trace_df['distance_to_lead'].min()
     return min_distance < 0.5  # 0.5m threshold for collision
 
@@ -228,6 +238,57 @@ def calculate_safety_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
 # OBJECTIVE FUNCTION 2: PLAUSIBILITY SCORE
 # ============================================================================
 
+def calculate_lead_plausibility(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
+    """
+    Calculate plausibility of lead vehicle behavior.
+    
+    Checks if lead vehicle dynamics are physically realistic:
+    - Maximum acceleration within tire/engine limits
+    - Jerk within realistic bounds
+    
+    Args:
+        trace_df: Simulation trace with 'lead_speed' column
+        dt: Time step
+        
+    Returns:
+        Lead plausibility score [0, 100]
+    """
+    if 'lead_speed' not in trace_df.columns:
+        return 100.0  # Can't check, assume plausible
+    
+    lead_velocities = trace_df['lead_speed'].values
+    
+    # Calculate lead acceleration
+    lead_accels = np.diff(lead_velocities) / dt
+    max_lead_accel = np.max(np.abs(lead_accels)) if len(lead_accels) > 0 else 0.0
+    
+    # Calculate lead jerk
+    if len(lead_accels) > 1:
+        lead_jerks = np.diff(lead_accels) / dt
+        max_lead_jerk = np.max(np.abs(lead_jerks))
+    else:
+        max_lead_jerk = 0.0
+    
+    # Lead vehicle thresholds (can be more aggressive than ego for realism)
+    # Real vehicles: max braking ~10-12 m/s², max jerk ~30-50 m/s³ in emergency
+    max_acceptable_lead_accel = 12.0  # m/s²
+    max_acceptable_lead_jerk = 40.0   # m/s³
+    
+    # Score acceleration
+    if max_lead_accel > max_acceptable_lead_accel:
+        lead_accel_score = max(0, 100 - 50 * (max_lead_accel - max_acceptable_lead_accel) / 5.0)
+    else:
+        lead_accel_score = 100.0
+    
+    # Score jerk
+    if max_lead_jerk > max_acceptable_lead_jerk:
+        lead_jerk_score = max(0, 100 - 50 * (max_lead_jerk - max_acceptable_lead_jerk) / 20.0)
+    else:
+        lead_jerk_score = 100.0
+    
+    return 0.5 * lead_accel_score + 0.5 * lead_jerk_score
+
+
 def calculate_plausibility_score(trace_df: pd.DataFrame, 
                                  lead_actions: Optional[Dict] = None,
                                  dt: float = 0.1) -> float:
@@ -235,9 +296,9 @@ def calculate_plausibility_score(trace_df: pd.DataFrame,
     Calculate plausibility score (MAXIMIZE for realistic scenarios).
     
     Higher score = more physically plausible
-    - Excessive acceleration = low score
-    - Excessive jerk = low score
-    - Unrealistic lead vehicle behavior = low score
+    - Excessive ego acceleration = low score
+    - Excessive ego jerk = low score
+    - Unrealistic lead vehicle behavior = low score (NEW)
     
     Args:
         trace_df: Simulation trace DataFrame
@@ -247,11 +308,11 @@ def calculate_plausibility_score(trace_df: pd.DataFrame,
     Returns:
         Plausibility score (higher = more plausible). Range: [0, 100]
     """
-    # Calculate dynamics metrics
+    # Calculate EGO dynamics metrics
     max_accel = calculate_maximum_acceleration(trace_df, dt)
     max_jerk = calculate_maximum_jerk(trace_df, dt)
     
-    # Score acceleration plausibility
+    # Score ego acceleration plausibility
     max_acceptable_accel = PLAUSIBILITY_CONSTRAINTS['max_longitudinal_accel']
     comfortable_accel = PLAUSIBILITY_CONSTRAINTS['comfortable_max_accel']
     
@@ -263,7 +324,7 @@ def calculate_plausibility_score(trace_df: pd.DataFrame,
     else:
         accel_score = 100.0  # Very plausible
     
-    # Score jerk plausibility
+    # Score ego jerk plausibility
     max_acceptable_jerk = PLAUSIBILITY_CONSTRAINTS['max_jerk']
     comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']
     
@@ -274,8 +335,12 @@ def calculate_plausibility_score(trace_df: pd.DataFrame,
     else:
         jerk_score = 100.0  # Very plausible
     
+    # Calculate LEAD vehicle plausibility (NEW)
+    lead_score = calculate_lead_plausibility(trace_df, dt)
+    
     # Combined plausibility score
-    plausibility_score = 0.5 * accel_score + 0.5 * jerk_score
+    # Weight: 40% ego accel, 30% ego jerk, 30% lead behavior
+    plausibility_score = 0.4 * accel_score + 0.3 * jerk_score + 0.3 * lead_score
     
     return float(plausibility_score)
 
@@ -381,7 +446,13 @@ def evaluate_all_objectives(trace_df: pd.DataFrame,
                            lead_actions: Optional[Dict] = None,
                            dt: float = 0.1) -> Dict[str, float]:
     """
-    Evaluate all three objectives for a simulation trace.
+    Evaluate objectives for a simulation trace.
+    
+    Objectives:
+    - Safety: Lower = more unsafe (we want to find unsafe scenarios)
+    - Plausibility: Higher = more realistic (we want realistic scenarios)
+    
+    Note: Comfort metric removed as it wasn't providing useful signal.
     
     Args:
         trace_df: Simulation trace DataFrame
@@ -389,16 +460,14 @@ def evaluate_all_objectives(trace_df: pd.DataFrame,
         dt: Time step
         
     Returns:
-        Dictionary with all three objective scores
+        Dictionary with objective scores
     """
     safety = calculate_safety_score(trace_df, dt)
     plausibility = calculate_plausibility_score(trace_df, lead_actions, dt)
-    comfort = calculate_comfort_score(trace_df, dt)
     
     return {
         'safety': safety,
         'plausibility': plausibility,
-        'comfort': comfort,
     }
 
 
@@ -441,7 +510,6 @@ def dominates(scores1: Dict[str, float], scores2: Dict[str, float]) -> bool:
     For our objectives:
     - Safety: MINIMIZE (lower is better for finding unsafe scenarios)
     - Plausibility: MAXIMIZE (higher is better)
-    - Comfort: MINIMIZE (lower is better for finding uncomfortable scenarios)
     
     Args:
         scores1: First set of objective scores
@@ -453,12 +521,12 @@ def dominates(scores1: Dict[str, float], scores2: Dict[str, float]) -> bool:
     # Convert to tuple for comparison
     # For minimization: lower is better
     # For maximization: negate so lower is better
-    s1 = (scores1['safety'], -scores1['plausibility'], scores1['comfort'])
-    s2 = (scores2['safety'], -scores2['plausibility'], scores2['comfort'])
+    s1 = (scores1['safety'], -scores1['plausibility'])
+    s2 = (scores2['safety'], -scores2['plausibility'])
     
     # scores1 dominates if it's better in at least one and not worse in any
-    better_in_at_least_one = any(s1[i] < s2[i] for i in range(3))
-    not_worse_in_any = all(s1[i] <= s2[i] for i in range(3))
+    better_in_at_least_one = any(s1[i] < s2[i] for i in range(2))
+    not_worse_in_any = all(s1[i] <= s2[i] for i in range(2))
     
     return better_in_at_least_one and not_worse_in_any
 
@@ -468,10 +536,9 @@ if __name__ == "__main__":
     print("=" * 80)
     print("OBJECTIVE FUNCTIONS MODULE")
     print("=" * 80)
-    print("\nThis module provides three objective functions:")
+    print("\nThis module provides two objective functions:")
     print("1. Safety Score (minimize): Lower = more unsafe scenarios")
     print("2. Plausibility Score (maximize): Higher = more realistic")
-    print("3. Comfort Score (minimize): Lower = more uncomfortable")
     print("\nAll scores are in range [0, 100]")
     print("=" * 80)
 

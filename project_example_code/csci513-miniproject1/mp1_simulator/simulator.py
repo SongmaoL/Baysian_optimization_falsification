@@ -83,6 +83,14 @@ class Simulator:
         self.server_port = self.config["port"]
         self.dt = self.config["dt"]
         self.display_size = self.config["display_size"]
+        
+        # Set random seed for reproducibility (Fix #5)
+        self.random_state = self.config.get("random_state", 42)
+        random.seed(self.random_state)
+        
+        # Initial velocities (will be set by set_spawn_points)
+        self.initial_ego_velocity = 0.0
+        self.initial_lead_velocity = 0.0
 
         print("connecting to Carla server...")
         self.client = carla.Client("127.0.0.1", self.server_port)
@@ -151,13 +159,17 @@ class Simulator:
         self.world.set_weather(weather)
 
     def set_spawn_points(self, initial_ego_state, initial_lead_state):
-        initial_ego_state = initial_ego_state
         ego_location = initial_ego_state["position"]
         ego_yaw = initial_ego_state["yaw"]
 
-        initial_lead_state = initial_lead_state
         lead_location = initial_lead_state["position"]
         lead_yaw = initial_lead_state["yaw"]
+        
+        # Store initial velocities (Fix #1: Apply initial velocities)
+        self.initial_ego_velocity = initial_ego_state.get("velocity", 0.0)
+        self.initial_lead_velocity = initial_lead_state.get("velocity", 0.0)
+        
+        print(f"Initial velocities - Ego: {self.initial_ego_velocity:.1f} m/s, Lead: {self.initial_lead_velocity:.1f} m/s")
 
         self.ego_vehicle_spawn_point = carla.Transform(
             carla.Location(x=ego_location['x'], y=-ego_location['y'], z=ego_location['z']),
@@ -167,9 +179,6 @@ class Simulator:
             carla.Location(x=lead_location['x'], y=-lead_location['y'], z=lead_location['z']),
             carla.Rotation(pitch=0.000000, yaw=lead_yaw + 180, roll=0.000000),
         )
-
-        # print("ego spawn pt: ", self.ego_vehicle_spawn_point)
-        # print("ado spawn pt: ", self.ado_vehicle_spawn_point)
 
 
     def _create_vehicle_blueprint(self, actor_filter, color=None):
@@ -329,6 +338,18 @@ class Simulator:
 
         if vehicle is not None:
             vehicle.set_transform(transform)
+            
+            # Apply initial velocity (Fix #1: Initial velocities)
+            if self.initial_ego_velocity > 0:
+                # Get forward direction from transform
+                fwd = transform.rotation.get_forward_vector()
+                vehicle.set_velocity(carla.Vector3D(
+                    x=fwd.x * self.initial_ego_velocity,
+                    y=fwd.y * self.initial_ego_velocity,
+                    z=0
+                ))
+                print(f"  Applied ego initial velocity: {self.initial_ego_velocity:.1f} m/s")
+            
             self.ego = vehicle
             print("Using Ego Vehicle ID: ", self.ego)
             return True
@@ -350,6 +371,18 @@ class Simulator:
 
         if vehicle is not None:
             vehicle.set_transform(transform)
+            
+            # Apply initial velocity (Fix #1: Initial velocities)
+            if self.initial_lead_velocity > 0:
+                # Get forward direction from transform
+                fwd = transform.rotation.get_forward_vector()
+                vehicle.set_velocity(carla.Vector3D(
+                    x=fwd.x * self.initial_lead_velocity,
+                    y=fwd.y * self.initial_lead_velocity,
+                    z=0
+                ))
+                print(f"  Applied lead initial velocity: {self.initial_lead_velocity:.1f} m/s")
+            
             self.ado = vehicle
             print("Using Ado Vehicle ID: ", self.ado)
             return True

@@ -6,12 +6,20 @@ of multi-objective falsification, including Pareto front visualization,
 convergence plots, and scenario selection.
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports when running as script
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_PROJECT_DIR = _SCRIPT_DIR.parent
+if str(_PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_DIR))
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import seaborn as sns
-from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 import json
 
@@ -63,8 +71,11 @@ def results_to_dataframe(results: List[EvaluationResult]) -> pd.DataFrame:
             'iteration': result.iteration,
             'safety': result.objectives['safety'],
             'plausibility': result.objectives['plausibility'],
-            'comfort': result.objectives['comfort'],
         }
+        # Include comfort if present (backward compatibility)
+        if 'comfort' in result.objectives:
+            row['comfort'] = result.objectives['comfort']
+        
         # Add parameters
         for key, value in result.parameters.items():
             row[f'param_{key}'] = value
@@ -82,7 +93,7 @@ def plot_pareto_front_3d(optimizer: MultiObjectiveBayesianOptimization,
                         save_path: Optional[Path] = None,
                         show: bool = True):
     """
-    Plot 3D Pareto front.
+    Plot Pareto front (2D now that comfort is removed).
     
     Args:
         optimizer: Optimization object with results
@@ -96,27 +107,40 @@ def plot_pareto_front_3d(optimizer: MultiObjectiveBayesianOptimization,
     # Extract objective values
     all_safety = [r.objectives['safety'] for r in all_results]
     all_plausibility = [r.objectives['plausibility'] for r in all_results]
-    all_comfort = [r.objectives['comfort'] for r in all_results]
     
     pareto_safety = [r.objectives['safety'] for r in pareto_results]
     pareto_plausibility = [r.objectives['plausibility'] for r in pareto_results]
-    pareto_comfort = [r.objectives['comfort'] for r in pareto_results]
     
-    # Create 3D plot
-    fig = plt.figure(figsize=(14, 10))
-    ax = fig.add_subplot(111, projection='3d')
+    # Check if we have comfort data (backward compatibility)
+    has_comfort = all_results and 'comfort' in all_results[0].objectives
     
-    # Plot all points
-    ax.scatter(all_safety, all_plausibility, all_comfort,
-              c='lightgray', alpha=0.3, s=30, label='All evaluations')
-    
-    # Plot Pareto front
-    ax.scatter(pareto_safety, pareto_plausibility, pareto_comfort,
-              c='red', alpha=0.8, s=100, marker='*', label='Pareto front')
-    
-    # Labels
-    ax.set_xlabel('Safety Score (minimize)', fontsize=12)
-    ax.set_ylabel('Plausibility Score (maximize)', fontsize=12)
+    if has_comfort:
+        # Legacy 3D plot for old results with comfort
+        all_comfort = [r.objectives['comfort'] for r in all_results]
+        pareto_comfort = [r.objectives['comfort'] for r in pareto_results]
+        
+        fig = plt.figure(figsize=(14, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        
+        ax.scatter(all_safety, all_plausibility, all_comfort,
+                  c='lightgray', alpha=0.3, s=30, label='All evaluations')
+        ax.scatter(pareto_safety, pareto_plausibility, pareto_comfort,
+                  c='red', alpha=0.8, s=100, marker='*', label='Pareto front')
+        
+        ax.set_xlabel('Safety Score (minimize)', fontsize=12)
+        ax.set_ylabel('Plausibility Score (maximize)', fontsize=12)
+        ax.set_zlabel('Comfort Score (minimize)', fontsize=12)
+    else:
+        # New 2D plot for results without comfort
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        ax.scatter(all_safety, all_plausibility,
+                  c='lightgray', alpha=0.3, s=30, label='All evaluations')
+        ax.scatter(pareto_safety, pareto_plausibility,
+                  c='red', alpha=0.8, s=100, marker='*', label='Pareto front')
+        
+        ax.set_xlabel('Safety Score (minimize)', fontsize=12)
+        ax.set_ylabel('Plausibility Score (maximize)', fontsize=12)
     ax.set_zlabel('Comfort Score (minimize)', fontsize=12)
     ax.set_title('3D Pareto Front Visualization', fontsize=14, fontweight='bold')
     ax.legend(fontsize=10)
@@ -152,17 +176,12 @@ def plot_pareto_front_2d_projections(optimizer: MultiObjectiveBayesianOptimizati
     all_df = results_to_dataframe(all_results)
     pareto_df = results_to_dataframe(pareto_results)
     
-    # Create subplots for pairwise comparisons
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    axes = axes.flatten()
+    # Create subplots for pairwise comparisons (comfort removed)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
     pairs = [
         ('safety', 'plausibility', 'Safety vs Plausibility'),
-        ('safety', 'comfort', 'Safety vs Comfort'),
-        ('plausibility', 'comfort', 'Plausibility vs Comfort'),
         ('safety', 'plausibility', 'Safety vs Plausibility (zoomed)'),
-        ('safety', 'comfort', 'Safety vs Comfort (zoomed)'),
-        ('plausibility', 'comfort', 'Plausibility vs Comfort (zoomed)'),
     ]
     
     for idx, (x_obj, y_obj, title) in enumerate(pairs):
@@ -223,7 +242,7 @@ def plot_convergence(optimizer: MultiObjectiveBayesianOptimization,
     
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     
-    objectives = ['safety', 'plausibility', 'comfort']
+    objectives = ['safety', 'plausibility']  # comfort removed
     colors = ['blue', 'green', 'orange']
     
     for ax, obj, color in zip(axes, objectives, colors):
@@ -327,7 +346,7 @@ def select_critical_scenarios(optimizer: MultiObjectiveBayesianOptimization,
     Selects diverse scenarios covering different trade-offs:
     - Lowest safety (most unsafe)
     - Highest plausibility (most realistic)
-    - Lowest comfort (most uncomfortable)
+    - Best trade-off (low safety + high plausibility)
     - Knee points (balanced trade-offs)
     
     Args:
@@ -356,10 +375,12 @@ def select_critical_scenarios(optimizer: MultiObjectiveBayesianOptimization,
     if max_plausibility not in selected:
         selected.append(max_plausibility)
     
-    # 3. Lowest comfort (most uncomfortable)
-    min_comfort = min(pareto_results, key=lambda r: r.objectives['comfort'])
-    if min_comfort not in selected:
-        selected.append(min_comfort)
+    # 3. Best trade-off: low safety + high plausibility
+    # (comfort removed from optimization)
+    best_tradeoff = min(pareto_results, 
+                        key=lambda r: r.objectives['safety'] - r.objectives['plausibility'])
+    if best_tradeoff not in selected:
+        selected.append(best_tradeoff)
     
     # 4. Fill remaining with diverse samples
     remaining = n_scenarios - len(selected)
@@ -418,8 +439,7 @@ def save_critical_scenarios_report(optimizer: MultiObjectiveBayesianOptimization
             scenario_info['notes'].append('Very unsafe (low safety score)')
         if result.objectives['plausibility'] > 80:
             scenario_info['notes'].append('Highly realistic (high plausibility)')
-        if result.objectives['comfort'] < 40:
-            scenario_info['notes'].append('Very uncomfortable (low comfort score)')
+        # Note: comfort metric removed from optimization
         
         report['critical_scenarios'].append(scenario_info)
     

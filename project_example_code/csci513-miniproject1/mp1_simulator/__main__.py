@@ -65,6 +65,7 @@ class TraceRow(NamedTuple):
     distance_to_lead: float
     ado_velocity: float
     mode: Mode
+    collided: bool  # Fix #4: Add collision flag to trace
 
 
 def observation_to_trace_row(obs: Observation, sim: Simulator, mode: Mode) -> TraceRow:
@@ -73,7 +74,8 @@ def observation_to_trace_row(obs: Observation, sim: Simulator, mode: Mode) -> Tr
         target_speed=obs.desired_speed,
         distance_to_lead=obs.distance_to_lead,
         ado_velocity=sim._get_ado_velocity(),
-        mode=mode
+        mode=mode,
+        collided=sim.collided_event  # Fix #4: Include collision status
     )
     
     return row
@@ -102,21 +104,23 @@ def run_episode(sim: Simulator, controller: Controller, *, log_file: Path, video
                 "desired_speed",
                 "distance_to_lead",
                 "lead_speed",
-                "mode"
+                "mode",
+                "collided"  # Fix #4: Add collision column
             ]
         )
 
         for i, row in enumerate(trace):
-            row = [
+            csv_row = [
                 i,
                 sim.dt * i,
                 row.ego_velocity,
                 row.target_speed,
                 row.distance_to_lead,
                 row.ado_velocity,
-                row.mode.value
+                row.mode.value,
+                1 if row.collided else 0  # Fix #4: Log collision as 0/1
             ]
-            csv_stream.writerow(row)
+            csv_stream.writerow(csv_row)
 
 
 def main():

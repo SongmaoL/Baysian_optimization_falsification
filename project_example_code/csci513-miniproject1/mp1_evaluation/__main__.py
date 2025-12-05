@@ -50,6 +50,28 @@ def parse_args() -> argparse.Namespace:
         help="CSV files containing the traces for experiments.",
         type=lambda p: Path(p).absolute(),
     )
+    
+    # Fix #3: Add CLI arguments for configurable STL constants
+    parser.add_argument(
+        "--dsafe",
+        type=float,
+        default=4.0,
+        help="Safe following distance (should match controller's distance_threshold)"
+    )
+    
+    parser.add_argument(
+        "--desired-speed",
+        type=float,
+        default=20.0,
+        help="Target cruise speed in m/s"
+    )
+    
+    parser.add_argument(
+        "--following-dist-threshold",
+        type=float,
+        default=40.0,
+        help="Distance threshold for cruising vs following mode"
+    )
 
     return parser.parse_args()
 
@@ -69,11 +91,21 @@ def extract_trace(tracefile: Path) -> Trace:
     return trace
 
 
-def _prepare_spec() -> STLDenseTimeSpecification:
+def _prepare_spec(dsafe: float = 4.0, desired_speed: float = 20.0) -> STLDenseTimeSpecification:
+    """Prepare STL specification with configurable constants.
+    
+    Args:
+        dsafe: Safe following distance (should match controller's distance_threshold)
+        desired_speed: Target cruise speed (should match scenario's desired_speed)
+    
+    Returns:
+        Configured STL specification
+    """
     spec = STLDenseTimeSpecification()
     spec.set_sampling_period(100, "ms", 0.1)
-    spec.declare_const("dsafe", "float", "4")
-    spec.declare_const("T", "float", "20.0")
+    # Fix #3: Make constants configurable instead of hardcoded
+    spec.declare_const("dsafe", "float", str(dsafe))
+    spec.declare_const("T", "float", str(desired_speed))
 
     spec.declare_var("ego_velocity", "float")
     spec.declare_var("desired_speed", "float")
@@ -98,8 +130,8 @@ def _parse_and_eval_spec(
     )
 
 
-def checkSafeFollowing(trace: Trace) -> Mapping[float, float]:
-    spec = _prepare_spec()
+def checkSafeFollowing(trace: Trace, dsafe: float = 4.0, desired_speed: float = 20.0) -> Mapping[float, float]:
+    spec = _prepare_spec(dsafe, desired_speed)
     spec.name = "Check if the ego maintains safe following distance"
 
     spec.spec = "always (distance_to_lead >= dsafe)"
@@ -107,8 +139,8 @@ def checkSafeFollowing(trace: Trace) -> Mapping[float, float]:
     return _parse_and_eval_spec(spec, trace)
 
 
-def checkForwardProgress(trace: Trace) -> Mapping[float, float]:
-    spec = _prepare_spec()
+def checkForwardProgress(trace: Trace, dsafe: float = 4.0, desired_speed: float = 20.0) -> Mapping[float, float]:
+    spec = _prepare_spec(dsafe, desired_speed)
     spec.name = "Check if ego car is never moving backwards"
 
     spec.spec = "always (ego_velocity >= 0)"
@@ -116,29 +148,32 @@ def checkForwardProgress(trace: Trace) -> Mapping[float, float]:
     return _parse_and_eval_spec(spec, trace)
 
 
-def checkDontStopUnlessLeadStops(trace: Trace) -> Mapping[float, float]:
-    spec = _prepare_spec()
+def checkDontStopUnlessLeadStops(trace: Trace, dsafe: float = 4.0, desired_speed: float = 20.0) -> Mapping[float, float]:
+    spec = _prepare_spec(dsafe, desired_speed)
     spec.name = "Check if ego car stopped without lead stopping"
 
     spec.declare_const("reallySmallSpeed", "float", "0.1")
+    # Fix #2: Changed G[3.:3.] to G[3.:] to check from time 3.0 onwards (not just at t=3.0)
     # Need to "offset the starting point" here since lead vehicle is always initially stationary
-    spec.spec = "G[3.:3.] (not((lead_speed > reallySmallSpeed) until[0.:20.] (ego_velocity < reallySmallSpeed)))"
+    spec.spec = "G[3.:] (not((lead_speed > reallySmallSpeed) until[0.:20.] (ego_velocity < reallySmallSpeed)))"
 
     return _parse_and_eval_spec(spec, trace)
 
 
-def checkNotFollowWhenFarAway(trace: Trace) -> Mapping[float, float]:
-    spec = _prepare_spec()
+def checkNotFollowWhenFarAway(trace: Trace, dsafe: float = 4.0, desired_speed: float = 20.0, 
+                              following_dist_threshold: float = 40.0) -> Mapping[float, float]:
+    spec = _prepare_spec(dsafe, desired_speed)
     spec.name = "Check that cruising mode is triggered when distance to lead is high enough"
 
-    spec.declare_const("followingDistThreshold", "float", "40.")
+    # Fix #3: Make followingDistThreshold configurable
+    spec.declare_const("followingDistThreshold", "float", str(following_dist_threshold))
     spec.spec = "always[0:18.]((distance_to_lead > followingDistThreshold) -> F[0:2.] (mode < 0.5 or distance_to_lead < followingDistThreshold))"
 
     return _parse_and_eval_spec(spec, trace)
 
 
-def checkReachTargetWhenNotFollowing(trace: Trace) -> Mapping[float, float]:
-    spec = _prepare_spec()
+def checkReachTargetWhenNotFollowing(trace: Trace, dsafe: float = 4.0, desired_speed: float = 20.0) -> Mapping[float, float]:
+    spec = _prepare_spec(dsafe, desired_speed)
     spec.name = "Check that target speed is being reached in 6 seconds when in cruising mode"
 
     spec.declare_const("closeEnough", "float", "2.0")
@@ -148,26 +183,35 @@ def checkReachTargetWhenNotFollowing(trace: Trace) -> Mapping[float, float]:
     return _parse_and_eval_spec(spec, trace)
 
 
-def evaluate_tracefile(tracefile: Path):
+def evaluate_tracefile(tracefile: Path, dsafe: float = 4.0, desired_speed: float = 20.0,
+                       following_dist_threshold: float = 40.0):
+    """Evaluate a trace file against STL specifications.
+    
+    Args:
+        tracefile: Path to CSV trace file
+        dsafe: Safe following distance (should match controller's distance_threshold)
+        desired_speed: Target cruise speed in m/s
+        following_dist_threshold: Distance threshold for cruising vs following mode
+    """
     trace = extract_trace(tracefile)
 
-    safeFollowing = checkSafeFollowing(trace)[0.0] >= 0
+    safeFollowing = checkSafeFollowing(trace, dsafe, desired_speed)[0.0] >= 0
     print("`safeFollowing`               = {}".format(
         'sat' if safeFollowing else 'unsat'))
 
-    forwardProgress = checkForwardProgress(trace)[0.0] >= 0
+    forwardProgress = checkForwardProgress(trace, dsafe, desired_speed)[0.0] >= 0
     print("`forwardProgress`             = {}".format(
         'sat' if forwardProgress else 'unsat'))
 
-    dontStopUnlessLeadStops = checkDontStopUnlessLeadStops(trace)[0.0] >= 0
+    dontStopUnlessLeadStops = checkDontStopUnlessLeadStops(trace, dsafe, desired_speed)[0.0] >= 0
     print("`dontStopUnlessLeadStops`     = {}".format(
         'sat' if dontStopUnlessLeadStops else 'unsat'))
 
-    notFollowWhenFarAway = checkNotFollowWhenFarAway(trace)[0.0] >= 0
+    notFollowWhenFarAway = checkNotFollowWhenFarAway(trace, dsafe, desired_speed, following_dist_threshold)[0.0] >= 0
     print("`notFollowWhenFarAway`        = {}".format(
         'sat' if notFollowWhenFarAway else 'unsat'))
 
-    reachTargetWhenNotFollowing = checkReachTargetWhenNotFollowing(trace)[0.0] >= 0
+    reachTargetWhenNotFollowing = checkReachTargetWhenNotFollowing(trace, dsafe, desired_speed)[0.0] >= 0
     print("`reachTargetWhenNotFollowing` = {}".format(
         'sat' if reachTargetWhenNotFollowing else 'unsat'))
 
@@ -181,13 +225,27 @@ def main():
     args = parse_args()
 
     tracefiles = args.tracefiles  # type: List[Path]
+    
+    # Print configuration
+    print("===================================================")
+    print("STL Evaluation Configuration:")
+    print(f"  dsafe (safe distance):       {args.dsafe} m")
+    print(f"  desired_speed:               {args.desired_speed} m/s")
+    print(f"  following_dist_threshold:    {args.following_dist_threshold} m")
+    print("===================================================")
+    
     data = []
     for tracefile in tracefiles:
         if str(tracefile)[-4:] == '.csv':
             print("===================================================")
             print("Evaluating trace file: ", str(
                 tracefile.relative_to(Path.cwd())))
-            data += [evaluate_tracefile(tracefile)]
+            data += [evaluate_tracefile(
+                tracefile, 
+                dsafe=args.dsafe,
+                desired_speed=args.desired_speed,
+                following_dist_threshold=args.following_dist_threshold
+            )]
             print("===================================================")
             print()
     data = np.array(data)

@@ -5,7 +5,7 @@ This script orchestrates the multi-objective falsification process:
 1. Uses multi-objective BO to suggest parameters
 2. Generates scenarios from parameters  
 3. Runs CARLA simulations
-4. Evaluates objectives (safety, plausibility, comfort)
+4. Evaluates objectives (safety, plausibility)
 5. Updates Pareto front
 6. Repeats for specified iterations
 """
@@ -43,7 +43,8 @@ class CARLASimulationRunner:
                  carla_project_dir: Path,
                  log_dir: Path,
                  vid_dir: Path,
-                 render: bool = False):
+                 render: bool = False,
+                 use_sensors: bool = True):
         """
         Initialize simulation runner.
         
@@ -52,11 +53,13 @@ class CARLASimulationRunner:
             log_dir: Directory to save simulation logs
             vid_dir: Directory to save videos
             render: Whether to render visualization
+            use_sensors: If True, use sensor-based simulator with weather effects
         """
         self.carla_project_dir = Path(carla_project_dir)
         self.log_dir = Path(log_dir)
         self.vid_dir = Path(vid_dir)
         self.render = render
+        self.use_sensors = use_sensors
         
         # Create directories
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -72,9 +75,15 @@ class CARLASimulationRunner:
         Returns:
             Path to simulation log CSV file (None if failed)
         """
+        # Choose simulator module based on configuration
+        if self.use_sensors:
+            simulator_module = "mp1_simulator.sensor"  # Sensor-based with weather effects
+        else:
+            simulator_module = "mp1_simulator"  # Ground truth
+        
         # Build command
         cmd = [
-            sys.executable, "-m", "mp1_simulator",
+            sys.executable, "-m", simulator_module,
             str(scenario_path),
             "--log-dir", str(self.log_dir.resolve()),
             "--vid-dir", str(self.vid_dir.resolve()),
@@ -152,7 +161,8 @@ class FalsificationOrchestrator:
                  output_dir: Path,
                  render: bool = False,
                  strategy: str = "multi_objective",
-                 random_state: int = 42):
+                 random_state: int = 42,
+                 use_sensors: bool = True):
         """
         Initialize falsification orchestrator.
         
@@ -162,10 +172,12 @@ class FalsificationOrchestrator:
             render: Whether to render simulations
             strategy: Optimization strategy ("multi_objective", "single_objective_safety", "random_search")
             random_state: Random seed
+            use_sensors: If True, use sensor-based simulator with weather effects (default: True)
         """
         self.carla_project_dir = Path(carla_project_dir)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.use_sensors = use_sensors
         
         # Create subdirectories
         self.scenarios_dir = self.output_dir / "scenarios"
@@ -187,8 +199,11 @@ class FalsificationOrchestrator:
             carla_project_dir=carla_project_dir,
             log_dir=self.logs_dir,
             vid_dir=self.vids_dir,
-            render=render
+            render=render,
+            use_sensors=use_sensors  # Pass sensor flag
         )
+        
+        print(f"Simulator mode: {'SENSOR-BASED (weather affects perception)' if use_sensors else 'GROUND TRUTH'}")
         
         self.random_state = random_state
         np.random.seed(random_state)
@@ -248,7 +263,6 @@ class FalsificationOrchestrator:
             objectives = evaluate_trace_file(log_path, dt=0.1)
             print(f"  Safety:      {objectives['safety']:.2f}")
             print(f"  Plausibility: {objectives['plausibility']:.2f}")
-            print(f"  Comfort:     {objectives['comfort']:.2f}")
             
             # Warn if plausibility is 0 (scenario violates physics)
             if objectives['plausibility'] == 0.0:
@@ -426,6 +440,19 @@ def parse_args():
     )
     
     parser.add_argument(
+        "--use-sensors",
+        action="store_true",
+        default=True,
+        help="Use sensor-based simulator with weather effects (default: True)"
+    )
+    
+    parser.add_argument(
+        "--no-sensors",
+        action="store_true",
+        help="Use ground-truth simulator (disable sensors)"
+    )
+    
+    parser.add_argument(
         "--random-state",
         type=int,
         default=42,
@@ -445,13 +472,17 @@ def main():
         print("Please specify the correct path with --carla-project")
         sys.exit(1)
     
+    # Determine sensor usage (--no-sensors overrides default)
+    use_sensors = not args.no_sensors
+    
     # Initialize orchestrator
     orchestrator = FalsificationOrchestrator(
         carla_project_dir=args.carla_project,
         output_dir=args.output_dir,
         render=args.render,
         strategy=args.strategy,
-        random_state=args.random_state
+        random_state=args.random_state,
+        use_sensors=use_sensors
     )
     
     # Run falsification

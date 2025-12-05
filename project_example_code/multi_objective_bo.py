@@ -40,7 +40,7 @@ except ImportError:
 class EvaluationResult:
     """Stores results of a single evaluation."""
     parameters: Dict[str, float]
-    objectives: Dict[str, float]  # safety, plausibility, comfort
+    objectives: Dict[str, float]  # safety, plausibility (comfort removed)
     iteration: int
     timestamp: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
@@ -66,8 +66,10 @@ class ParetoFront:
     def _dominates(self, r1: EvaluationResult, r2: EvaluationResult) -> bool:
         """Check if r1 Pareto dominates r2."""
         # Convert to minimization (negate plausibility)
-        v1 = np.array([r1.objectives['safety'], -r1.objectives['plausibility'], r1.objectives['comfort']])
-        v2 = np.array([r2.objectives['safety'], -r2.objectives['plausibility'], r2.objectives['comfort']])
+        # Safety: minimize (lower = more unsafe = what we want)
+        # Plausibility: maximize (higher = more realistic = what we want)
+        v1 = np.array([r1.objectives['safety'], -r1.objectives['plausibility']])
+        v2 = np.array([r2.objectives['safety'], -r2.objectives['plausibility']])
         return np.any(v1 < v2) and np.all(v1 <= v2)
     
     def add(self, result: EvaluationResult) -> bool:
@@ -125,8 +127,8 @@ class MultiObjectiveBayesianOptimization:
         
         Args:
             parameter_bounds: Dict mapping parameter names to (min, max) tuples
-            objective_names: Names of objectives (default: ['safety', 'plausibility', 'comfort'])
-            maximize_objectives: Which objectives to maximize (default: [False, True, False])
+            objective_names: Names of objectives (default: ['safety', 'plausibility'])
+            maximize_objectives: Which objectives to maximize (default: [False, True])
             strategy: Optimization strategy (default: "multi_objective")
             random_state: Random seed
         """
@@ -136,15 +138,17 @@ class MultiObjectiveBayesianOptimization:
         # Strategy
         self.strategy = strategy
         
-        # Objectives
+        # Objectives (comfort removed - it wasn't a good metric)
         if objective_names is None:
-            objective_names = ['safety', 'plausibility', 'comfort']
+            objective_names = ['safety', 'plausibility']
         self.objective_names = objective_names
         self.n_objectives = len(objective_names)
         
         # Which objectives to maximize
+        # Safety: minimize (find unsafe scenarios)
+        # Plausibility: maximize (keep them realistic)
         if maximize_objectives is None:
-            maximize_objectives = [False, True, False]
+            maximize_objectives = [False, True]
         self.maximize_objectives = maximize_objectives
         
         # Storage
@@ -574,11 +578,10 @@ if __name__ == "__main__":
         objectives = {
             'safety': np.random.uniform(20, 80),
             'plausibility': np.random.uniform(40, 90),
-            'comfort': np.random.uniform(30, 70),
         }
         
         optimizer.register_evaluation(params, objectives)
-        print(f"  {i+1}: safety={objectives['safety']:.1f}, plaus={objectives['plausibility']:.1f}, comfort={objectives['comfort']:.1f}")
+        print(f"  {i+1}: safety={objectives['safety']:.1f}, plaus={objectives['plausibility']:.1f}")
     
     print()
     optimizer.print_summary()
