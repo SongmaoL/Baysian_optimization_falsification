@@ -11,6 +11,13 @@ CHANGE LOG:
 - Dec 2024: Changed Safety Score from binary (collision=0, safe=60) to 
   continuous Min TTC-based scoring. This allows BO to learn gradients
   and produces more diverse Pareto fronts.
+  
+- Dec 2024: Improved Plausibility Score:
+  * Uses 95th percentile instead of max (ignores numerical spikes)
+  * Relaxed jerk thresholds: 25→40 m/s³ (ego), 40→60 m/s³ (lead)
+  * Context-aware: higher jerk acceptable during emergencies (TTC < 2s)
+  * Added weather consistency check (fog+sun, rain+clouds conflicts)
+  * Updated weights: accel 35%, jerk 25%, lead 25%, weather 15%
 
 Note: Comfort Score has been removed from the optimization as it wasn't providing
 useful signal. The function is kept for legacy compatibility but not used.
@@ -264,16 +271,97 @@ def calculate_safety_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
 
 
 # ============================================================================
-# OBJECTIVE FUNCTION 2: PLAUSIBILITY SCORE
+# OBJECTIVE FUNCTION 2: PLAUSIBILITY SCORE (IMPROVED)
 # ============================================================================
+# Improvements made Dec 2024:
+# 1. Relaxed jerk thresholds (25→40 ego, 40→60 lead) for realistic emergency braking
+# 2. Use 95th percentile instead of max to ignore brief numerical spikes
+# 3. Added weather consistency check
+# 4. Context-aware scoring: higher jerk acceptable during emergencies
+
+def calculate_weather_plausibility(weather_params: Optional[Dict] = None) -> float:
+    """
+    Check if weather conditions are physically consistent.
+    
+    Unrealistic combinations:
+    - Heavy fog + bright sun
+    - Heavy rain + no clouds
+    - Extreme combinations
+    
+    Args:
+        weather_params: Dict with fog_density, precipitation, sun_altitude_angle, cloudiness
+        
+    Returns:
+        Weather plausibility score [0, 100]
+    """
+    if weather_params is None:
+        return 100.0
+    
+    score = 100.0
+    
+    fog = weather_params.get('fog_density', 0)
+    rain = weather_params.get('precipitation', 0)
+    sun = weather_params.get('sun_altitude_angle', 45)
+    clouds = weather_params.get('cloudiness', 50)
+    
+    # Heavy fog + bright midday sun is unrealistic
+    if fog > 50 and sun > 60:
+        penalty = min(30, (fog - 50) * 0.5 + (sun - 60) * 0.5)
+        score -= penalty
+    
+    # Heavy rain + clear sky (no clouds) is unrealistic
+    if rain > 50 and clouds < 30:
+        penalty = min(30, (rain - 50) * 0.4 + (30 - clouds) * 0.4)
+        score -= penalty
+    
+    # Extreme fog (>70%) + any significant rain is rare
+    if fog > 70 and rain > 30:
+        score -= 15
+    
+    return max(0, score)
+
+
+def calculate_percentile_jerk(trace_df: pd.DataFrame, dt: float = 0.1, 
+                               percentile: float = 95) -> float:
+    """
+    Calculate jerk at given percentile (instead of max) to ignore brief spikes.
+    
+    Args:
+        trace_df: DataFrame with ego_velocity column
+        dt: Time step
+        percentile: Percentile to use (default 95th)
+        
+    Returns:
+        Jerk value at specified percentile
+    """
+    velocities = trace_df['ego_velocity'].values
+    
+    if len(velocities) < 3:
+        return 0.0
+    
+    # Calculate acceleration
+    accelerations = np.diff(velocities) / dt
+    
+    # Calculate jerk
+    jerks = np.diff(accelerations) / dt
+    
+    # Filter out low-speed artifacts
+    speeds = velocities[:-2]
+    valid_mask = speeds > 2.0
+    
+    if np.any(valid_mask):
+        valid_jerks = np.abs(jerks[valid_mask])
+        if len(valid_jerks) > 0:
+            return np.percentile(valid_jerks, percentile)
+    
+    return 0.0
+
 
 def calculate_lead_plausibility(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
     """
-    Calculate plausibility of lead vehicle behavior.
+    Calculate plausibility of lead vehicle behavior (IMPROVED).
     
-    Checks if lead vehicle dynamics are physically realistic:
-    - Maximum acceleration within tire/engine limits
-    - Jerk within realistic bounds
+    Uses 95th percentile and relaxed thresholds for realistic emergency braking.
     
     Args:
         trace_df: Simulation trace with 'lead_speed' column
@@ -283,35 +371,46 @@ def calculate_lead_plausibility(trace_df: pd.DataFrame, dt: float = 0.1) -> floa
         Lead plausibility score [0, 100]
     """
     if 'lead_speed' not in trace_df.columns:
-        return 100.0  # Can't check, assume plausible
+        return 100.0
     
     lead_velocities = trace_df['lead_speed'].values
     
+    if len(lead_velocities) < 2:
+        return 100.0
+    
     # Calculate lead acceleration
     lead_accels = np.diff(lead_velocities) / dt
-    max_lead_accel = np.max(np.abs(lead_accels)) if len(lead_accels) > 0 else 0.0
+    
+    # Use 95th percentile instead of max to ignore brief spikes
+    accel_95 = np.percentile(np.abs(lead_accels), 95) if len(lead_accels) > 0 else 0.0
     
     # Calculate lead jerk
     if len(lead_accels) > 1:
         lead_jerks = np.diff(lead_accels) / dt
-        max_lead_jerk = np.max(np.abs(lead_jerks))
+        jerk_95 = np.percentile(np.abs(lead_jerks), 95) if len(lead_jerks) > 0 else 0.0
     else:
-        max_lead_jerk = 0.0
+        jerk_95 = 0.0
     
-    # Lead vehicle thresholds (can be more aggressive than ego for realism)
-    # Real vehicles: max braking ~10-12 m/s², max jerk ~30-50 m/s³ in emergency
-    max_acceptable_lead_accel = 12.0  # m/s²
-    max_acceptable_lead_jerk = 40.0   # m/s³
+    # RELAXED thresholds for lead vehicle (emergency braking is realistic)
+    # Real vehicles: max braking ~10-12 m/s², emergency jerk ~40-80 m/s³
+    max_acceptable_lead_accel = 14.0  # m/s² (relaxed from 12)
+    max_acceptable_lead_jerk = 60.0   # m/s³ (relaxed from 40)
+    comfortable_lead_accel = 8.0
+    comfortable_lead_jerk = 30.0
     
-    # Score acceleration
-    if max_lead_accel > max_acceptable_lead_accel:
-        lead_accel_score = max(0, 100 - 50 * (max_lead_accel - max_acceptable_lead_accel) / 5.0)
+    # Score acceleration (gradual penalty)
+    if accel_95 > max_acceptable_lead_accel:
+        lead_accel_score = max(0, 50 - 25 * (accel_95 - max_acceptable_lead_accel) / 5.0)
+    elif accel_95 > comfortable_lead_accel:
+        lead_accel_score = 100 - 50 * (accel_95 - comfortable_lead_accel) / (max_acceptable_lead_accel - comfortable_lead_accel)
     else:
         lead_accel_score = 100.0
     
-    # Score jerk
-    if max_lead_jerk > max_acceptable_lead_jerk:
-        lead_jerk_score = max(0, 100 - 50 * (max_lead_jerk - max_acceptable_lead_jerk) / 20.0)
+    # Score jerk (gradual penalty)
+    if jerk_95 > max_acceptable_lead_jerk:
+        lead_jerk_score = max(0, 50 - 25 * (jerk_95 - max_acceptable_lead_jerk) / 30.0)
+    elif jerk_95 > comfortable_lead_jerk:
+        lead_jerk_score = 100 - 50 * (jerk_95 - comfortable_lead_jerk) / (max_acceptable_lead_jerk - comfortable_lead_jerk)
     else:
         lead_jerk_score = 100.0
     
@@ -320,56 +419,83 @@ def calculate_lead_plausibility(trace_df: pd.DataFrame, dt: float = 0.1) -> floa
 
 def calculate_plausibility_score(trace_df: pd.DataFrame, 
                                  lead_actions: Optional[Dict] = None,
+                                 weather_params: Optional[Dict] = None,
                                  dt: float = 0.1) -> float:
     """
-    Calculate plausibility score (MAXIMIZE for realistic scenarios).
+    Calculate plausibility score (IMPROVED - MAXIMIZE for realistic scenarios).
     
-    Higher score = more physically plausible
-    - Excessive ego acceleration = low score
-    - Excessive ego jerk = low score
-    - Unrealistic lead vehicle behavior = low score (NEW)
+    Improvements:
+    - Uses 95th percentile instead of max (ignores brief spikes)
+    - Relaxed jerk thresholds for realistic emergency braking
+    - Added weather consistency check
+    - Context-aware: emergency situations allow higher dynamics
+    
+    Components:
+    - Ego acceleration (35% weight)
+    - Ego jerk (25% weight)
+    - Lead vehicle dynamics (25% weight)
+    - Weather consistency (15% weight)
     
     Args:
         trace_df: Simulation trace DataFrame
-        lead_actions: Optional dict with lead vehicle behavior parameters
+        lead_actions: Optional lead vehicle behavior parameters
+        weather_params: Optional weather parameters for consistency check
         dt: Time step
         
     Returns:
         Plausibility score (higher = more plausible). Range: [0, 100]
     """
-    # Calculate EGO dynamics metrics
+    # Calculate EGO dynamics using 95th percentile
     max_accel = calculate_maximum_acceleration(trace_df, dt)
-    max_jerk = calculate_maximum_jerk(trace_df, dt)
+    jerk_95 = calculate_percentile_jerk(trace_df, dt, percentile=95)
     
-    # Score ego acceleration plausibility
-    max_acceptable_accel = PLAUSIBILITY_CONSTRAINTS['max_longitudinal_accel']
-    comfortable_accel = PLAUSIBILITY_CONSTRAINTS['comfortable_max_accel']
+    # Check if this is an emergency situation (low TTC)
+    min_ttc = calculate_minimum_ttc(trace_df)
+    is_emergency = min_ttc < 2.0  # TTC under 2 seconds = emergency
     
+    # RELAXED thresholds (especially for jerk during emergencies)
+    max_acceptable_accel = PLAUSIBILITY_CONSTRAINTS['max_longitudinal_accel']  # 12 m/s²
+    comfortable_accel = PLAUSIBILITY_CONSTRAINTS['comfortable_max_accel']      # 5 m/s²
+    
+    # Jerk thresholds - RELAXED from original 25 to 40 m/s³
+    # During emergency (TTC < 2s), allow even higher jerk
+    if is_emergency:
+        max_acceptable_jerk = 50.0   # Allow higher jerk in emergencies
+        comfortable_jerk = 15.0
+    else:
+        max_acceptable_jerk = 40.0   # Relaxed from 25
+        comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']  # 2 m/s³
+    
+    # Score ego acceleration
     if max_accel > max_acceptable_accel:
-        accel_score = 0.0  # Physically implausible
+        accel_score = max(0, 50 - 25 * (max_accel - max_acceptable_accel) / 5.0)
     elif max_accel > comfortable_accel:
-        # Linearly decrease from 100 to 50 between comfortable and max
         accel_score = 100 - 50 * (max_accel - comfortable_accel) / (max_acceptable_accel - comfortable_accel)
     else:
-        accel_score = 100.0  # Very plausible
+        accel_score = 100.0
     
-    # Score ego jerk plausibility
-    max_acceptable_jerk = PLAUSIBILITY_CONSTRAINTS['max_jerk']
-    comfortable_jerk = PLAUSIBILITY_CONSTRAINTS['comfortable_max_jerk']
-    
-    if max_jerk > max_acceptable_jerk:
-        jerk_score = 0.0  # Physically implausible
-    elif max_jerk > comfortable_jerk:
-        jerk_score = 100 - 50 * (max_jerk - comfortable_jerk) / (max_acceptable_jerk - comfortable_jerk)
+    # Score ego jerk (using 95th percentile)
+    if jerk_95 > max_acceptable_jerk:
+        jerk_score = max(0, 50 - 25 * (jerk_95 - max_acceptable_jerk) / 20.0)
+    elif jerk_95 > comfortable_jerk:
+        jerk_score = 100 - 50 * (jerk_95 - comfortable_jerk) / (max_acceptable_jerk - comfortable_jerk)
     else:
-        jerk_score = 100.0  # Very plausible
+        jerk_score = 100.0
     
-    # Calculate LEAD vehicle plausibility (NEW)
+    # Lead vehicle plausibility
     lead_score = calculate_lead_plausibility(trace_df, dt)
     
-    # Combined plausibility score
-    # Weight: 40% ego accel, 30% ego jerk, 30% lead behavior
-    plausibility_score = 0.4 * accel_score + 0.3 * jerk_score + 0.3 * lead_score
+    # Weather consistency plausibility
+    weather_score = calculate_weather_plausibility(weather_params)
+    
+    # Combined plausibility score with updated weights
+    # Reduced jerk weight since we're now more lenient
+    plausibility_score = (
+        0.35 * accel_score +      # Ego acceleration
+        0.25 * jerk_score +       # Ego jerk (reduced from 30%)
+        0.25 * lead_score +       # Lead vehicle
+        0.15 * weather_score      # Weather consistency (NEW)
+    )
     
     return float(plausibility_score)
 
@@ -473,26 +599,27 @@ def calculate_comfort_score(trace_df: pd.DataFrame, dt: float = 0.1) -> float:
 
 def evaluate_all_objectives(trace_df: pd.DataFrame, 
                            lead_actions: Optional[Dict] = None,
+                           weather_params: Optional[Dict] = None,
                            dt: float = 0.1) -> Dict[str, float]:
     """
     Evaluate objectives for a simulation trace.
     
     Objectives:
-    - Safety: Lower = more unsafe (we want to find unsafe scenarios)
-    - Plausibility: Higher = more realistic (we want realistic scenarios)
-    
-    Note: Comfort metric removed as it wasn't providing useful signal.
+    - Safety: Lower = more unsafe (based on Min TTC, continuous metric)
+    - Plausibility: Higher = more realistic (improved with 95th percentile,
+                    relaxed jerk thresholds, weather consistency check)
     
     Args:
         trace_df: Simulation trace DataFrame
         lead_actions: Optional lead vehicle behavior parameters
+        weather_params: Optional weather parameters for consistency check
         dt: Time step
         
     Returns:
         Dictionary with objective scores
     """
     safety = calculate_safety_score(trace_df, dt)
-    plausibility = calculate_plausibility_score(trace_df, lead_actions, dt)
+    plausibility = calculate_plausibility_score(trace_df, lead_actions, weather_params, dt)
     
     return {
         'safety': safety,
